@@ -13,8 +13,12 @@ app.permanent_session_lifetime = 86400 * 30
 db_url = os.environ.get('DATABASE_URL', 'sqlite:///mogclicker.db')
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Отключаем SSL для внутренней базы RelaxDev
+if "postgresql://" in db_url and "sslmode" not in db_url:
+    db_url += "?sslmode=disable"
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_urlapp.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # --- МОДЕЛИ БАЗЫ ДАННЫХ ---
