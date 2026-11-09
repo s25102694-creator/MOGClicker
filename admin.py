@@ -27,7 +27,8 @@ def print_menu():
     print("\033[93m 3.\033[0m Цвет ника           \033[93m4.\033[0m Создать аккаунт")
     print("\033[93m 5.\033[0m Сбросить прогресс   \033[93m6.\033[0m Забанить игрока")
     print("\033[93m 7.\033[0m Замутить игрока     \033[93m8.\033[0m Выдать MOG Coins")
-    print("\033[93m 9.\033[0m Создать промокод    \033[93m0.\033[0m Выход")
+    print("\033[93m 9.\033[0m Создать промокод    \033[93m10.\033[0m Цвет бейджа")
+    print("\033[93m 0.\033[0m Выход")
     print("\033[96m════════════════════════════════════════════\033[0m")
 
 def main():
@@ -36,9 +37,9 @@ def main():
     
     while True:
         try:
-            choice = input("\033[95mВыбери действие (0-9): \033[0m").strip()
+            choice = input("\033[95mВыбери действие (0-10): \033[0m").strip()
             if choice == '0': break
-            if choice not in [str(i) for i in range(10)]:
+            if choice not in [str(i) for i in range(11)]:
                 print("\033[91m❌ Неверный выбор.\033[0m"); continue
 
             if choice == '4':
@@ -80,6 +81,11 @@ def main():
             elif choice == '8':
                 amount = input("\033[96mСумма MOG Coins: \033[0m").strip()
                 send_command(f"/givecoins {target} {amount}")
+            elif choice == '10':
+                color = input("\033[96mЦвет бейджа (hex или rainbow): \033[0m").strip().lower()
+                if 'rain' in color or 'рад' in color: color = 'rainbow'
+                elif not color.startswith('#') and color != 'rainbow': color = '#' + color
+                send_command(f"/setbadgecolor {target} {color}")
 
         except KeyboardInterrupt: break
         except Exception as e: print(f"\033[91m❌ Ошибка: {e}\033[0m")
