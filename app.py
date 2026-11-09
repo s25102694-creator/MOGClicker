@@ -26,7 +26,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- МОДЕЛИ ---
+# --- МОДЕЛИ (Кланы удалены, добавлена дата регистрации) ---
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -50,15 +50,7 @@ class User(db.Model):
     ban_until = db.Column(db.Float, default=0.0)
     ban_duration = db.Column(db.String(50), default='')
     mute_until = db.Column(db.Float, default=0.0)
-    clan_id = db.Column(db.Integer, db.ForeignKey('clans.id'), nullable=True)
-    clan_role = db.Column(db.String(20), default='')
-
-class Clan(db.Model):
-    __tablename__ = 'clans'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), unique=True, nullable=False)
-    leader = db.Column(db.String(80), nullable=False)
-    is_open = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.Float, default=time.time)
 
 class Transfer(db.Model):
     __tablename__ = 'transfers'
@@ -141,18 +133,13 @@ HTML_CODE = """
         .shop-item:hover { border-color: var(--neon); transform: translateX(5px); }
         .shop-item button { background: var(--neon); color: #000; border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         
-        .top-player { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); align-items: center; transition: 0.2s; }
-        .top-player:hover { background: rgba(255,255,255,0.05); }
+        .top-player { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); align-items: center; transition: 0.2s; cursor: pointer; border-radius: 10px; }
+        .top-player:hover { background: rgba(255,255,255,0.05); border-left: 3px solid var(--neon); padding-left: 15px; }
         
         .floating { position: fixed; color: var(--gold); font-weight: bold; font-size: 30px; pointer-events: none; animation: floatUp 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards; text-shadow: 0 0 10px #000; z-index: 999; }
         @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-120px) scale(1.5); } }
         
-        /* ИСПРАВЛЕННЫЙ БЕЙДЖИК (ТАБЛЕТКА) */
-        .badge { 
-            padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 5px; font-weight: bold; 
-            display: inline-block; text-shadow: none; cursor: help; transition: 0.2s; 
-            background: rgba(255,255,255,0.1); border: 1px solid var(--border); 
-        }
+        .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 5px; font-weight: bold; display: inline-block; text-shadow: none; cursor: help; transition: 0.2s; background: rgba(255,255,255,0.1); border: 1px solid var(--border); }
         .badge:hover { transform: scale(1.1); border-color: var(--neon); }
         .hammer { margin-left: 5px; font-size: 14px; cursor: pointer; filter: drop-shadow(0 0 5px #ff0000); transition: 0.2s; }
         .hammer:hover { transform: scale(1.3); }
@@ -194,11 +181,6 @@ HTML_CODE = """
         .chat-input-row { display: flex; gap: 10px; width: 100%; }
         #chat-input { flex: 1; margin: 0; padding: 12px; border-radius: 20px; }
         #chat-send { width: 50px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
-        
-        .clan-card { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 15px; margin-bottom: 10px; }
-        .clan-card h4 { margin: 0 0 10px 0; color: var(--gold); }
-        .member-list { margin-top: 10px; max-height: 200px; overflow-y: auto; text-align: left; }
-        .member-item { display: flex; justify-content: space-between; padding: 8px; border-bottom: 1px solid var(--border); font-size: 14px; }
     </style>
 </head>
 <body class="theme-{{ user.theme if user else 'dark' }}" style="zoom: {{ user.zoom if user else 100 }}%; font-family: '{{ user.font_family if user else 'Montserrat' }}', sans-serif;">
@@ -265,7 +247,6 @@ HTML_CODE = """
             <button onclick="switchTab('game')" id="tab-game" class="nav-btn active">Игра</button>
             <button onclick="switchTab('shop')" id="tab-shop" class="nav-btn">Магазин</button>
             <button onclick="switchTab('transfer')" id="tab-transfer" class="nav-btn">Переводы</button>
-            <button onclick="switchTab('clan')" id="tab-clan" class="nav-btn">Союзы</button>
             <button onclick="switchTab('top')" id="tab-top" class="nav-btn">Топ</button>
             <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn">Настройки</button>
         </div>
@@ -302,33 +283,6 @@ HTML_CODE = """
             <h4 style="text-align:left;">Ваши переводы:</h4><div id="my-transfer-list" style="text-align:left; font-size:14px; max-height:150px; overflow-y:auto;"></div>
         </div>
 
-        <div id="view-clan" class="view">
-            <h3>Союзы (Кланы)</h3>
-            <div id="clan-content">
-                {% if user.clan_id %}
-                    <div id="my-clan-info">
-                        <div class="clan-card"><h4 id="c-name">Название</h4><p>Ваша роль: <span id="c-role" style="color:var(--gold); font-weight:bold;"></span></p><button class="btn-main btn-danger" onclick="leaveClan()">Покинуть союз</button></div>
-                        <h4>Участники:</h4><div id="clan-members" class="member-list"></div>
-                        <div id="clan-admin-controls" style="display:none; margin-top: 15px;">
-                            <h4>Управление (Лидер):</h4>
-                            <input type="text" id="clan-target" placeholder="Ник участника">
-                            <button class="btn-main" onclick="clanAction('promote')">Назначить Админом</button>
-                            <button class="btn-main" onclick="clanAction('transfer')">Передать Лидерство</button>
-                            <button class="btn-main btn-danger" onclick="clanAction('kick')">Кикнуть</button>
-                            <button class="btn-main btn-danger" onclick="deleteClan()">Удалить Союз</button>
-                        </div>
-                    </div>
-                {% else %}
-                    <div id="no-clan-info">
-                        <button class="btn-main" onclick="openModal('create-clan-modal')">Создать Союз</button>
-                        <input type="text" id="search-clan" placeholder="Поиск союза...">
-                        <button class="btn-main" onclick="searchClans()">Найти</button>
-                        <div id="clan-search-results" style="text-align:left; margin-top:15px;"></div>
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-
         <div id="view-top" class="view"><h3>Топ игроков</h3><div id="top-list">Загрузка...</div></div>
 
         <div id="view-settings" class="view">
@@ -360,18 +314,25 @@ HTML_CODE = """
         </div>
     {% endif %}
 
-    <div class="modal" id="create-clan-modal">
+    <!-- МОДАЛКА ПРОСМОТРА ПРОФИЛЯ -->
+    <div class="modal" id="profile-modal">
         <div class="modal-content">
-            <span class="close-btn" onclick="closeModal('create-clan-modal')">×</span>
-            <div class="modal-title">Создать Союз</div>
-            <input type="text" id="new-clan-name" placeholder="Название союза">
-            <div style="margin-bottom:15px; display:flex; align-items:center; gap:10px;">
-                <input type="checkbox" id="new-clan-open" style="width:20px; height:20px; margin:0;" checked> 
-                <label for="new-clan-open">Открытый для вступления</label>
-            </div>
-            <button class="btn-main" onclick="createClan()">Создать (1000 ₽)</button>
+            <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
+            <div class="modal-title">Профиль игрока</div>
+            <div class="info-label">НИК:</div>
+            <div class="info-value" id="p-nick"></div>
+            
+            <div class="info-label">БАЛАНС:</div>
+            <div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
+            
+            <div class="info-label">ДОНАТ-ВАЛЮТА:</div>
+            <div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
+            
+            <div class="info-label">ДАТА РЕГИСТРАЦИИ:</div>
+            <div class="info-value" id="p-date"></div>
         </div>
     </div>
+
     <div class="modal" id="lang-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('lang-modal')">×</span><div class="modal-title">Язык</div><div class="custom-option" onclick="changeSetting('lang', 'ru')">Русский</div><div class="custom-option" onclick="changeSetting('lang', 'en')">English</div></div></div>
     <div class="modal" id="theme-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('theme-modal')">×</span><div class="modal-title">Тема</div><div class="custom-option" onclick="changeSetting('theme', 'dark')">Тёмная</div><div class="custom-option" onclick="changeSetting('theme', 'light')">Светлая</div><div class="custom-option" onclick="changeSetting('theme', 'neon')">Неон</div><div class="custom-option" onclick="changeSetting('theme', 'cyber')">Киберпанк</div><div class="custom-option" onclick="changeSetting('theme', 'ocean')">Океан</div><div class="custom-option" onclick="changeSetting('theme', 'retro')">Ретро</div></div></div>
     <div class="modal" id="font-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('font-modal')">×</span><div class="modal-title">Шрифт</div><div class="custom-option" onclick="changeSetting('font_family', 'Montserrat')" style="font-family:'Montserrat'">Montserrat</div><div class="custom-option" onclick="changeSetting('font_family', 'Play')" style="font-family:'Play'">Play</div><div class="custom-option" onclick="changeSetting('font_family', 'Russo One')" style="font-family:'Russo One'">Russo One</div><div class="custom-option" onclick="changeSetting('font_family', 'Comic Neue')" style="font-family:'Comic Neue'">Comic Neue</div></div></div>
@@ -379,12 +340,10 @@ HTML_CODE = """
 
     <script>
         const isLoggedIn = {{ 'true' if user and not user.is_banned else 'false' }};
-        const currentUserClanId = {{ user.clan_id if user and user.clan_id else 'null' }};
         let currentLang = "{{ user.lang if user else 'ru' }}";
         let currentTheme = "{{ user.theme if user else 'dark' }}";
         let currentZoom = parseInt("{{ user.zoom if user else 100 }}");
         
-        // Защита от NaN (пустых полей из БД)
         let balance = parseFloat("{{ user.balance|default(0, true) }}");
         let clickPower = parseInt("{{ user.click_power|default(1, true) }}");
         let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
@@ -394,12 +353,7 @@ HTML_CODE = """
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
         let audioCtx = null;
-        function initAudio() { 
-            try {
-                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
-                if (audioCtx.state === 'suspended') audioCtx.resume(); 
-            } catch(e) {}
-        }
+        function initAudio() { try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); } catch(e) {} }
         document.body.addEventListener('click', initAudio, { once: true });
         document.body.addEventListener('touchstart', initAudio, { once: true });
 
@@ -447,7 +401,6 @@ HTML_CODE = """
             btn.classList.add('active');
             if(tab === 'top') loadTop();
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
-            if(tab === 'clan') loadClanInfo();
         }
 
         setInterval(() => {
@@ -517,60 +470,40 @@ HTML_CODE = """
             });
         }
 
-        function createClan() {
-            let name = document.getElementById('new-clan-name').value; let open = document.getElementById('new-clan-open').checked;
-            if(!name) return showToast("Введи название", 'error');
-            fetch('/api/clan/create', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name, is_open: open}) })
-            .then(res => res.json()).then(data => { if(data.success) { showToast("Союз создан!", 'success'); setTimeout(() => location.reload(), 1000); } else showToast(data.error, 'error'); });
-        }
-
-        function searchClans() {
-            let query = document.getElementById('search-clan').value;
-            fetch('/api/clan/search?q=' + query).then(res => res.json()).then(data => {
-                let html = ''; data.forEach(c => { html += `<div class="clan-card"><h4>${c.name}</h4><p>Лидер: ${c.leader}</p><button class="btn-main" onclick="joinClan(${c.id})">Вступить</button></div>`; });
-                document.getElementById('clan-search-results').innerHTML = html || '<div>Ничего не найдено</div>';
-            });
-        }
-
-        function joinClan(id) {
-            fetch('/api/clan/join', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({clan_id: id}) })
-            .then(res => res.json()).then(data => { if(data.success) { showToast("Вы вступили!", 'success'); setTimeout(() => location.reload(), 1000); } else showToast(data.error, 'error'); });
-        }
-
-        function loadClanInfo() {
-            if(!currentUserClanId) return;
-            fetch('/api/clan/info').then(res => res.json()).then(data => {
-                if(data.success) {
-                    document.getElementById('c-name').innerText = data.clan.name; document.getElementById('c-role').innerText = data.role;
-                    if(data.role === 'Лидер') document.getElementById('clan-admin-controls').style.display = 'block';
-                    let html = ''; data.members.forEach(m => { html += `<div class="member-item"><span>${m.username}</span><span style="color:var(--gold);">${m.role}</span></div>`; });
-                    document.getElementById('clan-members').innerHTML = html;
-                }
-            });
-        }
-
-        function clanAction(action) {
-            let target = document.getElementById('clan-target').value;
-            if(!target) return showToast("Введи ник", 'error');
-            fetch('/api/clan/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: action, target: target}) })
-            .then(res => res.json()).then(data => { if(data.success) { showToast("Успешно!", 'success'); loadClanInfo(); } else showToast(data.error, 'error'); });
-        }
-
-        function leaveClan() { if(confirm("Покинуть союз?")) fetch('/api/clan/leave', { method: 'POST' }).then(res => res.json()).then(data => { if(data.success) location.reload(); else showToast(data.error, 'error'); }); }
-        function deleteClan() { if(confirm("Удалить союз навсегда?")) fetch('/api/clan/delete', { method: 'POST' }).then(res => res.json()).then(data => { if(data.success) location.reload(); else showToast(data.error, 'error'); }); }
-
         function loadTop() {
             fetch('/api/top').then(res => res.json()).then(data => {
                 let html = ''; data.forEach((p, i) => {
                     let badgeClass = p.badge_color === 'rainbow' ? 'rainbow-text' : '';
                     let badgeStyle = p.badge_color !== 'rainbow' ? `background:${p.badge_color}; color:#000; border-color:${p.badge_color};` : '';
                     let badgeHtml = p.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${p.badge}</span>` : '';
-                    let hammerHtml = p.is_banned ? `<span class="hammer" onclick="showOtherBan('${p.username}')">🔨</span>` : '';
+                    let hammerHtml = p.is_banned ? `<span class="hammer" onclick="event.stopPropagation(); showOtherBan('${p.username}')">🔨</span>` : '';
                     let nameClass = p.color === 'rainbow' ? 'rainbow-text' : '';
                     let nameStyle = p.color !== 'rainbow' ? `style="color:${p.color}; font-weight:bold;"` : '';
-                    html += `<div class="top-player"><span>#${i+1} <span class="${nameClass}" ${nameStyle}>${p.username}</span> ${badgeHtml}${hammerHtml}</span> <span>${Math.floor(p.balance)} ₽</span></div>`;
+                    html += `<div class="top-player" onclick="openProfile('${p.username}')">
+                                <span>#${i+1} <span class="${nameClass}" ${nameStyle}>${p.username}</span> ${badgeHtml}${hammerHtml}</span> 
+                                <span>${Math.floor(p.balance)} ₽</span>
+                             </div>`;
                 });
                 document.getElementById('top-list').innerHTML = html;
+            });
+        }
+
+        function openProfile(username) {
+            fetch('/api/profile/' + username).then(res => res.json()).then(data => {
+                if(data.error) return showToast("Ошибка загрузки профиля", "error");
+                
+                let nameClass = data.color === 'rainbow' ? 'rainbow-text' : '';
+                let nameStyle = data.color !== 'rainbow' ? `style="color:${data.color}; font-weight:bold;"` : '';
+                let badgeClass = data.badge_color === 'rainbow' ? 'rainbow-text' : '';
+                let badgeStyle = data.badge_color !== 'rainbow' ? `background:${data.badge_color}; color:#000; border-color:${data.badge_color};` : '';
+                let badgeHtml = data.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${data.badge}</span>` : '';
+
+                document.getElementById('p-nick').innerHTML = `<span class="${nameClass}" ${nameStyle}>${data.username}</span> ${badgeHtml}`;
+                document.getElementById('p-balance').innerText = Math.floor(data.balance) + ' ₽';
+                document.getElementById('p-coins').innerText = Math.floor(data.mog_coins) + ' 💎';
+                document.getElementById('p-date').innerText = data.created_at;
+                
+                openModal('profile-modal');
             });
         }
 
@@ -735,6 +668,21 @@ def api_user():
     if user.is_banned: return jsonify({'error': 'Banned'}), 403
     return jsonify({'success': True, 'balance': user.balance, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until})
 
+@app.route('/api/profile/<username>')
+def api_profile(username):
+    user = User.query.filter_by(username=username).first()
+    if not user: return jsonify({'error': 'Not found'}), 404
+    date_str = time.strftime('%d.%m.%Y', time.localtime(user.created_at if user.created_at else time.time()))
+    return jsonify({
+        'username': user.username,
+        'balance': user.balance,
+        'mog_coins': user.mog_coins,
+        'badge': user.badge,
+        'badge_color': user.badge_color,
+        'color': user.color,
+        'created_at': date_str
+    })
+
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json; u, p = data['username'], data['password']
@@ -800,68 +748,6 @@ def api_buy_custom():
         db.session.commit()
         return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
-
-@app.route('/api/clan/create', methods=['POST'])
-def clan_create():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json; user = User.query.get(session['user_id'])
-    if user.clan_id: return jsonify({'error': 'Вы уже в союзе'}), 400
-    if user.balance < 1000: return jsonify({'error': 'Нужно 1000 ₽'}), 400
-    if Clan.query.filter_by(name=data['name']).first(): return jsonify({'error': 'Название занято'}), 400
-    clan = Clan(name=data['name'], leader=user.username, is_open=data['is_open'])
-    user.balance -= 1000; user.clan_id = clan.id; user.clan_role = 'Лидер'
-    db.session.add(clan); db.session.commit(); return jsonify({'success': True})
-
-@app.route('/api/clan/search')
-def clan_search():
-    q = request.args.get('q', ''); clans = Clan.query.filter(Clan.name.ilike(f'%{q}%')).limit(10).all()
-    return jsonify([{'id': c.id, 'name': c.name, 'leader': c.leader} for c in clans])
-
-@app.route('/api/clan/join', methods=['POST'])
-def clan_join():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    user = User.query.get(session['user_id'])
-    if user.clan_id: return jsonify({'error': 'Вы уже в союзе'}), 400
-    clan = Clan.query.get(request.json.get('clan_id'))
-    if not clan or not clan.is_open: return jsonify({'error': 'Союз закрыт'}), 400
-    user.clan_id = clan.id; user.clan_role = 'Участник'; db.session.commit(); return jsonify({'success': True})
-
-@app.route('/api/clan/info')
-def clan_info():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    user = User.query.get(session['user_id'])
-    if not user.clan_id: return jsonify({'error': 'Нет клана'}), 400
-    clan = Clan.query.get(user.clan_id); members = User.query.filter_by(clan_id=user.clan_id).all()
-    return jsonify({'success': True, 'clan': {'name': clan.name}, 'role': user.clan_role, 'members': [{'username': m.username, 'role': m.clan_role} for m in members]})
-
-@app.route('/api/clan/action', methods=['POST'])
-def clan_action():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    user = User.query.get(session['user_id']); data = request.json; action = data['action']; target_name = data['target']
-    if user.clan_role != 'Лидер': return jsonify({'error': 'Только лидер'}), 403
-    target = User.query.filter_by(username=target_name, clan_id=user.clan_id).first()
-    if not target: return jsonify({'error': 'Игрок не в вашем союзе'}), 404
-    if target.username == user.username: return jsonify({'error': 'Это вы'}), 400
-    if action == 'promote': target.clan_role = 'Админ'
-    elif action == 'kick': target.clan_id = None; target.clan_role = ''
-    elif action == 'transfer':
-        target.clan_role = 'Лидер'; user.clan_role = 'Админ'; Clan.query.get(user.clan_id).leader = target.username
-    db.session.commit(); return jsonify({'success': True})
-
-@app.route('/api/clan/leave', methods=['POST'])
-def clan_leave():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    user = User.query.get(session['user_id'])
-    if user.clan_role == 'Лидер': return jsonify({'error': 'Лидер не может выйти'}), 400
-    user.clan_id = None; user.clan_role = ''; db.session.commit(); return jsonify({'success': True})
-
-@app.route('/api/clan/delete', methods=['POST'])
-def clan_delete():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    user = User.query.get(session['user_id'])
-    if user.clan_role != 'Лидер': return jsonify({'error': 'Только лидер'}), 403
-    User.query.filter_by(clan_id=user.clan_id).update({'clan_id': None, 'clan_role': ''})
-    Clan.query.filter_by(id=user.clan_id).delete(); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/top')
 def api_top():
