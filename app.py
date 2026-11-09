@@ -20,13 +20,14 @@ if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 if "postgresql://" in db_url:
     db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if "sslmode" not in db_url: db_url += "?sslmode=disable"
+    if "sslmode" not in db_url:
+        db_url += "?sslmode=disable"
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- МОДЕЛИ (Кланы удалены, добавлена дата регистрации) ---
+# --- МОДЕЛИ ---
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -77,8 +78,7 @@ class Promocode(db.Model):
     uses_left = db.Column(db.Integer)
 
 with app.app_context():
-    db.drop_all()   # <--- ЭТА СТРОКА УДАЛИТ СТАРУЮ БАЗУ
-    db.create_all() # <--- А ЭТА СОЗДАСТ НОВУЮ С ПРАВИЛЬНЫМИ КОЛОНКАМИ    db.create_all()
+    db.create_all()
 
 HTML_CODE = """
 <!DOCTYPE html>
@@ -315,20 +315,16 @@ HTML_CODE = """
         </div>
     {% endif %}
 
-    <!-- МОДАЛКА ПРОСМОТРА ПРОФИЛЯ -->
     <div class="modal" id="profile-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
             <div class="modal-title">Профиль игрока</div>
             <div class="info-label">НИК:</div>
             <div class="info-value" id="p-nick"></div>
-            
             <div class="info-label">БАЛАНС:</div>
             <div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
-            
             <div class="info-label">ДОНАТ-ВАЛЮТА:</div>
             <div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
-            
             <div class="info-label">ДАТА РЕГИСТРАЦИИ:</div>
             <div class="info-value" id="p-date"></div>
         </div>
@@ -646,16 +642,26 @@ HTML_CODE = """
 
 @app.route('/')
 def index():
-    user = None; remaining_seconds = 0
+    user = None
+    remaining_seconds = 0
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
-        if not user: session.pop('user_id', None)
+        if not user: 
+            session.pop('user_id', None)
         elif user.is_banned:
             if time.time() >= user.ban_until:
-                user.is_banned = 0; user.ban_reason = ""; user.ban_msg = ""; user.ban_until = 0; user.ban_duration = ""; db.session.commit()
-            else: remaining_seconds = int(user.ban_until - time.time())
+                user.is_banned = 0
+                user.ban_reason = ""
+                user.ban_msg = ""
+                user.ban_until = 0
+                user.ban_duration = ""
+                db.session.commit()
+            else: 
+                remaining_seconds = int(user.ban_until - time.time())
         if user and user.badge_expire > 0 and time.time() > user.badge_expire:
-            user.badge = ''; user.badge_expire = 0; db.session.commit()
+            user.badge = ''
+            user.badge_expire = 0
+            db.session.commit()
 
     multi_price = 50 * (2 ** (user.click_power - 1)) if user and not user.is_banned else 50
     auto_price = 200 * (3 ** user.auto_income) if user and not user.is_banned else 200
@@ -663,16 +669,20 @@ def index():
 
 @app.route('/api/user')
 def api_user():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    if not user: return jsonify({'error': 'No user'}), 401
-    if user.is_banned: return jsonify({'error': 'Banned'}), 403
+    if not user: 
+        return jsonify({'error': 'No user'}), 401
+    if user.is_banned: 
+        return jsonify({'error': 'Banned'}), 403
     return jsonify({'success': True, 'balance': user.balance, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until})
 
 @app.route('/api/profile/<username>')
 def api_profile(username):
     user = User.query.filter_by(username=username).first()
-    if not user: return jsonify({'error': 'Not found'}), 404
+    if not user: 
+        return jsonify({'error': 'Not found'}), 404
     date_str = time.strftime('%d.%m.%Y', time.localtime(user.created_at if user.created_at else time.time()))
     return jsonify({
         'username': user.username,
@@ -686,12 +696,17 @@ def api_profile(username):
 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.json; u, p = data['username'], data['password']
-    if re.search('[а-яА-ЯёЁ]', u) or re.search('[а-яА-ЯёЁ]', p): return jsonify({'error': 'Cyrillic'}), 400
-    if User.query.filter_by(username=u).first(): return jsonify({'error': 'Taken'}), 400
+    data = request.json
+    u, p = data['username'], data['password']
+    if re.search('[а-яА-ЯёЁ]', u) or re.search('[а-яА-ЯёЁ]', p): 
+        return jsonify({'error': 'Cyrillic'}), 400
+    if User.query.filter_by(username=u).first(): 
+        return jsonify({'error': 'Taken'}), 400
     user = User(username=u, password=generate_password_hash(p))
-    db.session.add(user); db.session.commit()
-    session.permanent = True; session['user_id'] = user.id
+    db.session.add(user)
+    db.session.commit()
+    session.permanent = True
+    session['user_id'] = user.id
     return jsonify({'success': True}), 200
 
 @app.route('/login', methods=['POST'])
@@ -701,23 +716,35 @@ def login():
     if user and check_password_hash(user.password, data['password']):
         if user.is_banned:
             if time.time() >= user.ban_until:
-                user.is_banned = 0; user.ban_reason = ""; user.ban_msg = ""; user.ban_until = 0; user.ban_duration = ""; db.session.commit()
-            else: return jsonify({'banned': True}), 403
-        session.permanent = True; session['user_id'] = user.id
+                user.is_banned = 0
+                user.ban_reason = ""
+                user.ban_msg = ""
+                user.ban_until = 0
+                user.ban_duration = ""
+                db.session.commit()
+            else: 
+                return jsonify({'banned': True}), 403
+        session.permanent = True
+        session['user_id'] = user.id
         return jsonify({'success': True}), 200
     return jsonify({'error': 'Bad auth'}), 401
 
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None); return redirect(url_for('index'))
+    session.pop('user_id', None)
+    return redirect(url_for('index'))
 
 @app.route('/api/click', methods=['POST'])
 def api_click():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    if not user: return jsonify({'error': 'No user'}), 401
+    if not user: 
+        return jsonify({'error': 'No user'}), 401
     if user.is_banned:
-        db.session.delete(user); db.session.commit(); session.pop('user_id', None)
+        db.session.delete(user)
+        db.session.commit()
+        session.pop('user_id', None)
         return jsonify({'error': 'banned_deleted'}), 403
     user.balance += request.json.get('amount', 1)
     db.session.commit()
@@ -725,27 +752,38 @@ def api_click():
 
 @app.route('/api/buy', methods=['POST'])
 def api_buy():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    type = request.json.get('type'); user = User.query.get(session['user_id'])
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    type = request.json.get('type')
+    user = User.query.get(session['user_id'])
     if type == 'multi':
         price = 50 * (2 ** (user.click_power - 1))
         if user.balance >= price:
-            user.balance -= price; user.click_power *= 2; db.session.commit()
+            user.balance -= price
+            user.click_power *= 2
+            db.session.commit()
             return jsonify({'success': True, 'new_balance': user.balance})
     elif type == 'auto':
         price = 200 * (3 ** user.auto_income)
         if user.balance >= price:
-            user.balance -= price; user.auto_income += 1; db.session.commit()
+            user.balance -= price
+            user.auto_income += 1
+            db.session.commit()
             return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
 
 @app.route('/api/buy_custom', methods=['POST'])
 def api_buy_custom():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json; user = User.query.get(session['user_id'])
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    user = User.query.get(session['user_id'])
     if user.balance >= data['price']:
         if data['type'] == 'badge':
-            user.balance -= data['price']; user.badge = data['value']; user.badge_color = '#00ffcc'; user.badge_expire = time.time() + 14 * 86400
+            user.balance -= data['price']
+            user.badge = data['value']
+            user.badge_color = '#00ffcc'
+            user.badge_expire = time.time() + 14 * 86400
         db.session.commit()
         return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
@@ -758,38 +796,61 @@ def api_top():
 @app.route('/api/ban_info/<username>')
 def api_ban_info(username):
     user = User.query.filter_by(username=username, is_banned=1).first()
-    if user: return jsonify({'success': True, 'username': user.username, 'ban_reason': user.ban_reason, 'ban_msg': user.ban_msg, 'remaining': max(0, int(user.ban_until - time.time()))})
+    if user: 
+        return jsonify({'success': True, 'username': user.username, 'ban_reason': user.ban_reason, 'ban_msg': user.ban_msg, 'remaining': max(0, int(user.ban_until - time.time()))})
     return jsonify({'error': 'Not found'}), 404
 
 @app.route('/api/settings', methods=['POST'])
 def api_settings():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json; user = User.query.get(session['user_id'])
-    setattr(user, data['key'], data['value']); db.session.commit(); return jsonify({'success': True})
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    user = User.query.get(session['user_id'])
+    setattr(user, data['key'], data['value'])
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/reset', methods=['POST'])
 def api_reset():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    user.balance = 0; user.click_power = 1; user.auto_income = 0; user.color = '#ffffff'; user.badge = ''; user.badge_color = '#ffffff'
-    db.session.commit(); return jsonify({'success': True})
+    user.balance = 0
+    user.click_power = 1
+    user.auto_income = 0
+    user.color = '#ffffff'
+    user.badge = ''
+    user.badge_color = '#ffffff'
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/transfer', methods=['POST'])
 def api_transfer():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json; amount = data['amount']; receiver = data['receiver']
-    if amount <= 0: return jsonify({'error': 'Неверная сумма'}), 400
-    sender = User.query.get(session['user_id']); target = User.query.filter_by(username=receiver).first()
-    if not target: return jsonify({'error': 'Игрок не найден'}), 404
-    if sender.username == receiver: return jsonify({'error': 'Себе нельзя'}), 400
-    if sender.balance < amount: return jsonify({'error': 'Мало денег'}), 400
-    sender.balance -= amount; target.balance += amount
-    db.session.add(Transfer(sender=sender.username, receiver=receiver, amount=amount, timestamp=time.time())); db.session.commit()
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    amount = data['amount']
+    receiver = data['receiver']
+    if amount <= 0: 
+        return jsonify({'error': 'Неверная сумма'}), 400
+    sender = User.query.get(session['user_id'])
+    target = User.query.filter_by(username=receiver).first()
+    if not target: 
+        return jsonify({'error': 'Игрок не найден'}), 404
+    if sender.username == receiver: 
+        return jsonify({'error': 'Себе нельзя'}), 400
+    if sender.balance < amount: 
+        return jsonify({'error': 'Мало денег'}), 400
+    sender.balance -= amount
+    target.balance += amount
+    db.session.add(Transfer(sender=sender.username, receiver=receiver, amount=amount, timestamp=time.time()))
+    db.session.commit()
     return jsonify({'success': True})
 
 @app.route('/api/transfers/top')
 def api_transfers_top():
-    period = request.args.get('period', 'all'); now = time.time()
+    period = request.args.get('period', 'all')
+    now = time.time()
     start = now - 86400 if period == 'day' else (now - 2592000 if period == 'month' else 0)
     from sqlalchemy import func
     rows = db.session.query(Transfer.sender, func.sum(Transfer.amount).label('total')).filter(Transfer.timestamp >= start).group_by(Transfer.sender).order_by(func.sum(Transfer.amount).desc()).limit(10).all()
@@ -797,7 +858,8 @@ def api_transfers_top():
 
 @app.route('/api/transfers/my')
 def api_transfers_my():
-    if 'user_id' not in session: return jsonify([])
+    if 'user_id' not in session: 
+        return jsonify([])
     user = User.query.get(session['user_id'])
     rows = Transfer.query.filter_by(sender=user.username).order_by(Transfer.timestamp.desc()).limit(20).all()
     return jsonify([{'receiver': r.receiver, 'amount': r.amount, 'timestamp': r.timestamp} for r in rows])
@@ -808,50 +870,77 @@ def api_chat_get():
     res = []
     for m in reversed(msgs):
         u = User.query.filter_by(username=m.username).first()
-        res.append({'username': m.username, 'text': m.text, 'timestamp': m.timestamp, 'reply_user': m.reply_user, 'reply_text': m.reply_text, 'color': u.color if u else '#fff', 'badge': u.badge if u else '', 'badge_color': u.badge_color if u else '#fff'})
+        res.append({
+            'username': m.username, 
+            'text': m.text, 
+            'timestamp': m.timestamp, 
+            'reply_user': m.reply_user, 
+            'reply_text': m.reply_text, 
+            'color': u.color if u else '#fff', 
+            'badge': u.badge if u else '', 
+            'badge_color': u.badge_color if u else '#fff'
+        })
     return jsonify(res)
 
 @app.route('/api/chat/send', methods=['POST'])
 def api_chat_send():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json; text = data.get('text', '').strip()
-    if not text: return jsonify({'error': 'Пустое'}), 400
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    text = data.get('text', '').strip()
+    if not text: 
+        return jsonify({'error': 'Пустое'}), 400
     user = User.query.get(session['user_id'])
-    if user.mute_until > time.time(): return jsonify({'error': 'Вы заглушены!'}), 403
+    if user.mute_until > time.time(): 
+        return jsonify({'error': 'Вы заглушены!'}), 403
     msg = ChatMessage(username=user.username, text=text[:100], timestamp=time.time(), reply_user=data.get('reply_user', ''), reply_text=data.get('reply_text', '')[:50])
-    db.session.add(msg); db.session.commit(); return jsonify({'success': True})
+    db.session.add(msg)
+    db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/api/promo/redeem', methods=['POST'])
 def api_promo_redeem():
-    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    code = request.json.get('code', '').strip(); promo = Promocode.query.filter_by(code=code).first()
-    if not promo or promo.uses_left <= 0: return jsonify({'error': 'Недействительный код'}), 400
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    code = request.json.get('code', '').strip()
+    promo = Promocode.query.filter_by(code=code).first()
+    if not promo or promo.uses_left <= 0: 
+        return jsonify({'error': 'Недействительный код'}), 400
     user = User.query.get(session['user_id'])
-    if promo.type == 'money': user.balance += float(promo.value)
-    elif promo.type == 'coins': user.mog_coins += float(promo.value)
-    elif promo.type == 'badge': user.badge = promo.value; user.badge_expire = time.time() + 14 * 86400
-    elif promo.type == 'color': user.color = promo.value
-    promo.uses_left -= 1; db.session.commit(); return jsonify({'success': True})
-
-            db.session.commit() return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
+    if promo.type == 'money': 
+        user.balance += float(promo.value)
+    elif promo.type == 'coins': 
+        user.mog_coins += float(promo.value)
+    elif promo.type == 'badge': 
+        user.badge = promo.value
+        user.badge_expire = time.time() + 14 * 86400
+    elif promo.type == 'color': 
+        user.color = promo.value
+    promo.uses_left -= 1
+    db.session.commit()
+    return jsonify({'success': True})
 
 ADMIN_SECRET_TOKEN = "MOG_SECRET_2026"
 
 @app.route('/api/admin/command', methods=['POST'])
 def api_admin_command():
     data = request.json
-    if data.get('token') != ADMIN_SECRET_TOKEN: return jsonify({'error': 'Доступ запрещен'}), 403
+    if data.get('token') != ADMIN_SECRET_TOKEN: 
+        return jsonify({'error': 'Доступ запрещен'}), 403
     cmd_str = data.get('command', '').strip()
-    if not cmd_str: return jsonify({'error': 'Пустая команда'})
-    parts = cmd_str.split(); action = parts[0]
+    if not cmd_str: 
+        return jsonify({'error': 'Пустая команда'})
+    
+    parts = cmd_str.split()
+    action = parts[0]
     
     try:
-        # --- КОМАНДЫ БЕЗ ПОЛЬЗОВАТЕЛЯ ---
         if action == '/createuser' and len(parts) >= 3:
             if User.query.filter_by(username=parts[1]).first(): 
                 return jsonify({'error': 'Ник занят'})
             new_u = User(username=parts[1], password=generate_password_hash(parts[2]))
-            db.session.add(new_u); db.session.commit()
+            db.session.add(new_u)
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Аккаунт {parts[1]} создан'})
             
         elif action == '/promo' and len(parts) >= 5:
@@ -862,57 +951,76 @@ def api_admin_command():
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Промокод {p_code} создан'})
 
-        # --- КОМАНДЫ С ПОЛЬЗОВАТЕЛЕМ ---
         target = parts[1] if len(parts) > 1 else ""
         user = User.query.filter_by(username=target).first()
         if not user: 
             return jsonify({'error': f'Игрок {target} не найден'})
             
         if action == '/give' and len(parts) >= 3:
-            try: amount = float(parts[2])
-            except: return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
-            user.balance += amount; db.session.commit()
+            try: 
+                amount = float(parts[2])
+            except ValueError: 
+                return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            user.balance += amount
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
             
         elif action == '/givecoins' and len(parts) >= 3:
-            try: amount = float(parts[2])
-            except: return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
-            user.mog_coins += amount; db.session.commit()
+            try: 
+                amount = float(parts[2])
+            except ValueError: 
+                return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            user.mog_coins += amount
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Выдано {amount} MOG Coins'})
             
         elif action == '/givebadge' and len(parts) >= 3: 
-            user.badge = parts[2]; user.badge_expire = time.time() + 14 * 86400; db.session.commit()
+            user.badge = parts[2]
+            user.badge_expire = time.time() + 14 * 86400
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Бейдж {parts[2]} выдан'})
             
         elif action == '/setcolor' and len(parts) >= 3: 
-            user.color = parts[2]; db.session.commit()
+            user.color = parts[2]
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Цвет изменен'})
             
         elif action == '/setbadgecolor' and len(parts) >= 3: 
-            user.badge_color = parts[2]; db.session.commit()
+            user.badge_color = parts[2]
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
             
         elif action == '/ban' and len(parts) >= 3:
-            duration = parts[2]; reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"; sec = 60
+            duration = parts[2]
+            reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"
+            sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
             elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
             elif 'd' in duration: sec = int(duration.replace('d','')) * 86400
-            user.is_banned = 1; user.ban_reason = reason; user.ban_until = time.time() + sec; user.ban_duration = duration
-            db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
+            user.is_banned = 1
+            user.ban_reason = reason
+            user.ban_until = time.time() + sec
+            user.ban_duration = duration
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
             
         elif action == '/mute' and len(parts) >= 3:
-            duration = parts[2]; sec = 60
+            duration = parts[2]
+            sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
             elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
-            user.mute_until = time.time() + sec; db.session.commit()
+            user.mute_until = time.time() + sec
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
             
         elif action == '/reset': 
-            user.balance = 0; user.click_power = 1; user.auto_income = 0; db.session.commit()
+            user.balance = 0
+            user.click_power = 1
+            user.auto_income = 0
+            db.session.commit()
             return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
             
         return jsonify({'error': 'Неизвестная команда'})
-        
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)})
