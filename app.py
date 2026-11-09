@@ -77,7 +77,8 @@ class Promocode(db.Model):
     uses_left = db.Column(db.Integer)
 
 with app.app_context():
-    db.create_all()
+    db.drop_all()   # <--- ЭТА СТРОКА УДАЛИТ СТАРУЮ БАЗУ
+    db.create_all() # <--- А ЭТА СОЗДАСТ НОВУЮ С ПРАВИЛЬНЫМИ КОЛОНКАМИ    db.create_all()
 
 HTML_CODE = """
 <!DOCTYPE html>
