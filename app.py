@@ -2,10 +2,12 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 import sqlite3
 import time
 import re
+import os  # ФИКС ДЛЯ ХОСТИНГА
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = 'mog_secret_key_123'
+# ФИКС ДЛЯ ХОСТИНГА
+app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
 app.permanent_session_lifetime = 86400 * 30
 
 def get_db():
@@ -43,7 +45,6 @@ def init_db():
             amount REAL,
             timestamp REAL
         )''')
-        # Добавил поля для реплаев в чате
         conn.execute('''CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT,
@@ -68,7 +69,6 @@ HTML_CODE = """
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>MOGCLICKER</title>
-    <!-- Подключаем шрифты с поддержкой кириллицы -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&family=Montserrat:wght@400;700&family=Play:wght@400;700&family=Russo+One&display=swap" rel="stylesheet">
@@ -163,7 +163,6 @@ HTML_CODE = """
         #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
         #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
         
-        /* СТИЛИ ДЛЯ СООБЩЕНИЙ И РЕПЛАЕВ */
         .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; transition: transform 0.2s;}
         
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
@@ -342,11 +341,9 @@ HTML_CODE = """
             </div>
         </div>
 
-        <!-- ГЛОБАЛЬНЫЙ ЧАТ -->
         <div id="chat-container">
             <div id="chat-messages"></div>
             
-            <!-- Плашка если замучен -->
             <div id="chat-mute-status">
                 Вы заглушены на <span id="mute-timer">0с</span>
             </div>
@@ -474,7 +471,6 @@ HTML_CODE = """
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
         }
 
-        // СИНХРОНИЗАЦИЯ И АВТОКЛИКЕР
         setInterval(() => {
             if(!isLoggedIn) return;
             fetch('/api/user').then(r => { if(r.status === 403) { window.location.reload(); return; } return r.json(); }).then(data => {
@@ -487,7 +483,6 @@ HTML_CODE = """
             }).catch(()=>{});
         }, 2000);
 
-        // АВТОКЛИКЕР (Каждую секунду если есть доход)
         setInterval(() => {
             if(!isLoggedIn || autoIncome <= 0) return;
             balance += autoIncome;
@@ -625,7 +620,6 @@ HTML_CODE = """
             });
         }
 
-        // --- ЧАТ ---
         let currentReplyUser = "";
         let currentReplyText = "";
 
@@ -651,7 +645,6 @@ HTML_CODE = """
                                      </div>`;
                     }
 
-                    // Обернул в контейнер для свайпа
                     html += `<div class="chat-msg" onmousedown="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')">
                                 ${replyHtml}
                                 <span class="${nameClass}" style="${nameStyle}">${m.username}</span>
@@ -665,14 +658,13 @@ HTML_CODE = """
             });
         }
 
-        // --- СВАЙП ДЛЯ РЕПЛАЯ ---
         let startX = 0;
         function startSwipe(e, user, text) {
             startX = e.touches ? e.touches[0].clientX : e.clientX;
             let element = e.currentTarget;
             let endHandler = function(endEvent) {
                 let endX = endEvent.changedTouches ? endEvent.changedTouches[0].clientX : endEvent.clientX;
-                if (startX - endX > 50) { // Свайп влево больше 50px
+                if (startX - endX > 50) {
                     setReply(user, text);
                 }
                 element.style.transform = "translateX(0)";
@@ -710,7 +702,6 @@ HTML_CODE = """
 
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
 
-        // --- СИСТЕМА МУТА В ЧАТЕ ---
         function checkMuteStatus() {
             let now = Math.floor(Date.now() / 1000);
             let muteTimeLeft = muteUntil - now;
@@ -941,5 +932,7 @@ def api_promo_redeem():
         conn.commit()
         return jsonify({'success': True, 'reward': promo['reward']})
 
+# ФИКС ДЛЯ ХОСТИНГА (порт 8080)
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, use_reloader=False)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, use_reloader=False)
