@@ -9,7 +9,17 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
 app.permanent_session_lifetime = 86400 * 30
 
-db_url = os.environ.get('DATABASE_URL', 'sqlite:///mogclicker.db')
+# --- ЖЕСТКАЯ ПРОВЕРКА БАЗЫ ДАННЫХ ---
+db_url = os.environ.get('DATABASE_URL')
+if not db_url:
+    print("="*50)
+    print("⚠️ ВНИМАНИЕ! ПЕРЕМЕННАЯ DATABASE_URL НЕ НАЙДЕНА!")
+    print("⚠️ СЕРВЕР БУДЕТ ИСПОЛЬЗОВАТЬ SQLITE. ДАННЫЕ БУДУТ СЛЕТАТЬ!")
+    print("="*50)
+    db_url = 'sqlite:///mogclicker.db'
+else:
+    print("✅ ПОДКЛЮЧЕНИЕ К POSTGRESQL УСПЕШНО НАЙДЕНО!")
+
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
 if "postgresql://" in db_url:
@@ -123,6 +133,10 @@ HTML_CODE = """
         .btn-gold { background: var(--gold); box-shadow: 0 0 15px transparent; }
         .btn-gold:hover { box-shadow: 0 0 15px var(--gold); }
         .btn-disabled { background: #444 !important; color: #888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
+
+        /* ИСПРАВЛЕННЫЙ СТИЛЬ КНОПОК НАВИГАЦИИ */
+        .nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 14px; }
+        .nav-btn.active { border-color: var(--neon); color: var(--neon); box-shadow: 0 0 10px var(--neon); }
 
         #score { font-size: 45px; color: var(--gold); font-weight: bold; text-shadow: 0 0 15px rgba(255,215,0,0.4); margin: 15px 0; transition: transform 0.1s; }
         #coin { width: 200px; height: 200px; background: radial-gradient(circle, var(--gold), #b8860b); border-radius: 50%; margin: 20px auto; font-size: 80px; line-height: 200px; cursor: pointer; box-shadow: 0 0 40px var(--gold); display: block; transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
@@ -421,10 +435,10 @@ HTML_CODE = """
 
         function switchTab(tab) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-            document.querySelectorAll('.nav button').forEach(b => { b.classList.remove('active'); b.style.borderColor = 'var(--border)'; b.style.color = 'var(--text)'; b.style.boxShadow = 'none'; });
+            document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); });
             document.getElementById('view-' + tab).classList.add('active');
             let btn = document.getElementById('tab-' + tab);
-            btn.classList.add('active'); btn.style.borderColor = 'var(--neon)'; btn.style.color = 'var(--neon)'; btn.style.boxShadow = '0 0 10px var(--neon)';
+            btn.classList.add('active');
             if(tab === 'top') loadTop();
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
             if(tab === 'clan') loadClanInfo();
@@ -574,8 +588,8 @@ HTML_CODE = """
         }
 
         function loadTransfers(period, btn) {
-            document.querySelectorAll('#view-transfer .nav-btn').forEach(b => { b.style.background = 'var(--panel)'; b.style.color = 'var(--text)'; b.style.border = '1px solid var(--border)'; });
-            btn.style.background = 'var(--neon)'; btn.style.color = '#000'; btn.style.border = 'none';
+            document.querySelectorAll('#view-transfer .nav-btn').forEach(b => { b.classList.remove('active'); });
+            if(btn) btn.classList.add('active');
             fetch('/api/transfers/top?period=' + period).then(res => res.json()).then(data => {
                 let html = ''; data.forEach((t, i) => { html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">#${i+1} <b>${t.sender}</b> перевел <b>${t.total}</b> ₽</div>`; });
                 document.getElementById('transfer-top-list').innerHTML = html || '<div style="color:#888;">Нет переводов</div>';
@@ -646,10 +660,22 @@ HTML_CODE = """
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
 
         function checkMuteStatus() {
-            let now = Math.floor(Date.now() / 1000); let muteTimeLeft = muteUntil - now;
-            let inputArea = document.getElementById('chat-input-area'); let muteStatus = document.getElementById('chat-mute-status');
-            if(muteTimeLeft > 0) { inputArea.style.display = 'none'; muteStatus.style.display = 'block'; let m = Math.floor(muteTimeLeft / 60); let s = muteTimeLeft % 60; document.getElementById('mute-timer').innerText = (m > 0 ? m + "м " : "") + s + "с"; }
-            else { inputArea.style.display = 'flex'; muteStatus.style.display = 'none'; }
+            let now = Math.floor(Date.now() / 1000); 
+            let muteTimeLeft = muteUntil - now;
+            let inputArea = document.getElementById('chat-input-area'); 
+            let muteStatus = document.getElementById('chat-mute-status');
+            
+            if(muteTimeLeft > 1) { 
+                inputArea.style.display = 'none'; 
+                muteStatus.style.display = 'block'; 
+                let m = Math.floor(muteTimeLeft / 60); 
+                let s = muteTimeLeft % 60; 
+                document.getElementById('mute-timer').innerText = (m > 0 ? m + "м " : "") + s + "с"; 
+            }
+            else { 
+                inputArea.style.display = 'flex'; 
+                muteStatus.style.display = 'none'; 
+            }
         }
         setInterval(checkMuteStatus, 1000);
         window.onload = () => { if(isLoggedIn) { setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); } };
