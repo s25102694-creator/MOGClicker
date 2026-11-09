@@ -833,6 +833,8 @@ def api_promo_redeem():
     elif promo.type == 'color': user.color = promo.value
     promo.uses_left -= 1; db.session.commit(); return jsonify({'success': True})
 
+            db.session.commit() return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
+
 ADMIN_SECRET_TOKEN = "MOG_SECRET_2026"
 
 @app.route('/api/admin/command', methods=['POST'])
@@ -842,18 +844,54 @@ def api_admin_command():
     cmd_str = data.get('command', '').strip()
     if not cmd_str: return jsonify({'error': 'Пустая команда'})
     parts = cmd_str.split(); action = parts[0]
+    
     try:
+        # --- КОМАНДЫ БЕЗ ПОЛЬЗОВАТЕЛЯ ---
         if action == '/createuser' and len(parts) >= 3:
-            if User.query.filter_by(username=parts[1]).first(): return jsonify({'error': 'Ник занят'})
+            if User.query.filter_by(username=parts[1]).first(): 
+                return jsonify({'error': 'Ник занят'})
             new_u = User(username=parts[1], password=generate_password_hash(parts[2]))
-            db.session.add(new_u); db.session.commit(); return jsonify({'success': True, 'msg': f'Аккаунт {parts[1]} создан'})
-        target = parts[1] if len(parts) > 1 else ""; user = User.query.filter_by(username=target).first()
-        if not user: return jsonify({'error': f'Игрок {target} не найден'})
-        if action == '/give' and len(parts) >= 3: user.balance += float(parts[2]); db.session.commit(); return jsonify({'success': True, 'msg': f'Выдано {parts[2]} ₽'})
-        elif action == '/givecoins' and len(parts) >= 3: user.mog_coins += float(parts[2]); db.session.commit(); return jsonify({'success': True, 'msg': f'Выдано {parts[2]} MOG Coins'})
-        elif action == '/givebadge' and len(parts) >= 3: user.badge = parts[2]; user.badge_expire = time.time() + 14 * 86400; db.session.commit(); return jsonify({'success': True, 'msg': f'Бейдж {parts[2]} выдан'})
-        elif action == '/setcolor' and len(parts) >= 3: user.color = parts[2]; db.session.commit(); return jsonify({'success': True, 'msg': f'Цвет изменен'})
-        elif action == '/setbadgecolor' and len(parts) >= 3: user.badge_color = parts[2]; db.session.commit(); return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
+            db.session.add(new_u); db.session.commit()
+            return jsonify({'success': True, 'msg': f'Аккаунт {parts[1]} создан'})
+            
+        elif action == '/promo' and len(parts) >= 5:
+            p_code, p_type, p_val, p_uses = parts[1], parts[2], parts[3], int(parts[4])
+            if Promocode.query.get(p_code): 
+                return jsonify({'error': 'Промокод уже есть'})
+            db.session.add(Promocode(code=p_code, type=p_type, value=p_val, uses_left=p_uses))
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Промокод {p_code} создан'})
+
+        # --- КОМАНДЫ С ПОЛЬЗОВАТЕЛЕМ ---
+        target = parts[1] if len(parts) > 1 else ""
+        user = User.query.filter_by(username=target).first()
+        if not user: 
+            return jsonify({'error': f'Игрок {target} не найден'})
+            
+        if action == '/give' and len(parts) >= 3:
+            try: amount = float(parts[2])
+            except: return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            user.balance += amount; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
+            
+        elif action == '/givecoins' and len(parts) >= 3:
+            try: amount = float(parts[2])
+            except: return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            user.mog_coins += amount; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Выдано {amount} MOG Coins'})
+            
+        elif action == '/givebadge' and len(parts) >= 3: 
+            user.badge = parts[2]; user.badge_expire = time.time() + 14 * 86400; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Бейдж {parts[2]} выдан'})
+            
+        elif action == '/setcolor' and len(parts) >= 3: 
+            user.color = parts[2]; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Цвет изменен'})
+            
+        elif action == '/setbadgecolor' and len(parts) >= 3: 
+            user.badge_color = parts[2]; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
+            
         elif action == '/ban' and len(parts) >= 3:
             duration = parts[2]; reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"; sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
@@ -861,19 +899,23 @@ def api_admin_command():
             elif 'd' in duration: sec = int(duration.replace('d','')) * 86400
             user.is_banned = 1; user.ban_reason = reason; user.ban_until = time.time() + sec; user.ban_duration = duration
             db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
+            
         elif action == '/mute' and len(parts) >= 3:
             duration = parts[2]; sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
             elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
-            user.mute_until = time.time() + sec; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
-        elif action == '/reset': user.balance = 0; user.click_power = 1; user.auto_income = 0; db.session.commit(); return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
-        elif action == '/promo' and len(parts) >= 5:
-            p_code, p_type, p_val, p_uses = parts[1], parts[2], parts[3], int(parts[4])
-            if Promocode.query.get(p_code): return jsonify({'error': 'Промокод уже есть'})
-            db.session.add(Promocode(code=p_code, type=p_type, value=p_val, uses_left=p_uses)); db.session.commit(); return jsonify({'success': True, 'msg': f'Промокод {p_code} создан'})
+            user.mute_until = time.time() + sec; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
+            
+        elif action == '/reset': 
+            user.balance = 0; user.click_power = 1; user.auto_income = 0; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
+            
         return jsonify({'error': 'Неизвестная команда'})
+        
     except Exception as e:
-        db.session.rollback(); return jsonify({'error': str(e)})
+        db.session.rollback()
+        return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
