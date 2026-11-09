@@ -18,7 +18,8 @@ if db_url.startswith("postgres://"):
 if "postgresql://" in db_url and "sslmode" not in db_url:
     db_url += "?sslmode=disable"
 
-app.config['SQLALCHEMY_DATABASE_URI'] = db_urlapp.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 # --- МОДЕЛИ БАЗЫ ДАННЫХ ---
