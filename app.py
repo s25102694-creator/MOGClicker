@@ -2,11 +2,10 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 import sqlite3
 import time
 import re
-import os  # ФИКС ДЛЯ ХОСТИНГА
+import os
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-# ФИКС ДЛЯ ХОСТИНГА
 app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
 app.permanent_session_lifetime = 86400 * 30
 
@@ -932,7 +931,80 @@ def api_promo_redeem():
         conn.commit()
         return jsonify({'success': True, 'reward': promo['reward']})
 
-# ФИКС ДЛЯ ХОСТИНГА (порт 8080)
+# --- API ДЛЯ КОНСОЛИ АДМИНА ---
+ADMIN_SECRET_TOKEN = "MOG_SECRET_2026"
+
+@app.route('/api/admin/command', methods=['POST'])
+def api_admin_command():
+    data = request.json
+    if data.get('token') != ADMIN_SECRET_TOKEN:
+        return jsonify({'error': 'Доступ запрещен'}), 403
+        
+    cmd_str = data.get('command', '').strip()
+    if not cmd_str: return jsonify({'error': 'Пустая команда'})
+    
+    parts = cmd_str.split()
+    action = parts[0]
+    
+    try:
+        with get_db() as conn:
+            if action == '/createuser' and len(parts) >= 3:
+                u, p = parts[1], parts[2]
+                conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (u, generate_password_hash(p)))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Аккаунт {u} создан'})
+                
+            target = parts[1] if len(parts) > 1 else ""
+            user = conn.execute('SELECT * FROM users WHERE username = ?', (target,)).fetchone()
+            if not user: return jsonify({'error': f'Игрок {target} не найден'})
+
+            if action == '/give' and len(parts) >= 3:
+                amount = float(parts[2])
+                conn.execute('UPDATE users SET balance = balance + ? WHERE username = ?', (amount, target))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Выдано {amount} ₽ игроку {target}'})
+                
+            elif action == '/givebadge' and len(parts) >= 3:
+                conn.execute('UPDATE users SET badge = ? WHERE username = ?', (parts[2], target))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Бейдж {parts[2]} выдан'})
+                
+            elif action == '/setcolor' and len(parts) >= 3:
+                conn.execute('UPDATE users SET color = ? WHERE username = ?', (parts[2], target))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Цвет изменен'})
+                
+            elif action == '/ban' and len(parts) >= 3:
+                duration = parts[2]
+                reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"
+                sec = 60
+                if 'm' in duration: sec = int(duration.replace('m','')) * 60
+                elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
+                elif 'd' in duration: sec = int(duration.replace('d','')) * 86400
+                
+                conn.execute('UPDATE users SET is_banned = 1, ban_reason = ?, ban_until = ?, ban_duration = ? WHERE username = ?', (reason, time.time() + sec, duration, target))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
+                
+            elif action == '/mute' and len(parts) >= 3:
+                duration = parts[2]
+                sec = 60
+                if 'm' in duration: sec = int(duration.replace('m','')) * 60
+                elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
+                
+                conn.execute('UPDATE users SET mute_until = ? WHERE username = ?', (time.time() + sec, target))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
+                
+            elif action == '/reset':
+                conn.execute('UPDATE users SET balance=0, click_power=1, auto_income=0 WHERE username = ?', (target,))
+                conn.commit()
+                return jsonify({'success': True, 'msg': f'Прогресс {target} сброшен'})
+                
+            return jsonify({'error': 'Неизвестная команда или неверный формат'})
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, use_reloader=False)
