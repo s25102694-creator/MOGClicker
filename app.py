@@ -9,16 +9,12 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
 app.permanent_session_lifetime = 86400 * 30
 
-# --- ЖЕСТКАЯ ПРОВЕРКА БАЗЫ ДАННЫХ ---
 db_url = os.environ.get('DATABASE_URL')
 if not db_url:
-    print("="*50)
-    print("⚠️ ВНИМАНИЕ! ПЕРЕМЕННАЯ DATABASE_URL НЕ НАЙДЕНА!")
-    print("⚠️ СЕРВЕР БУДЕТ ИСПОЛЬЗОВАТЬ SQLITE. ДАННЫЕ БУДУТ СЛЕТАТЬ!")
-    print("="*50)
+    print("⚠️ ВНИМАНИЕ! DATABASE_URL НЕ НАЙДЕНА! БАЗА БУДЕТ СЛЕТАТЬ!")
     db_url = 'sqlite:///mogclicker.db'
 else:
-    print("✅ ПОДКЛЮЧЕНИЕ К POSTGRESQL УСПЕШНО НАЙДЕНО!")
+    print("✅ ПОДКЛЮЧЕНИЕ К POSTGRESQL УСПЕШНО!")
 
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql://", 1)
@@ -134,7 +130,6 @@ HTML_CODE = """
         .btn-gold:hover { box-shadow: 0 0 15px var(--gold); }
         .btn-disabled { background: #444 !important; color: #888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
 
-        /* ИСПРАВЛЕННЫЙ СТИЛЬ КНОПОК НАВИГАЦИИ */
         .nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 14px; }
         .nav-btn.active { border-color: var(--neon); color: var(--neon); box-shadow: 0 0 10px var(--neon); }
 
@@ -152,8 +147,13 @@ HTML_CODE = """
         .floating { position: fixed; color: var(--gold); font-weight: bold; font-size: 30px; pointer-events: none; animation: floatUp 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards; text-shadow: 0 0 10px #000; z-index: 999; }
         @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-120px) scale(1.5); } }
         
-        .badge { padding: 4px 10px; border-radius: 8px; font-size: 12px; margin-left: 5px; font-weight: bold; display: inline-block; text-shadow: none; cursor: help; transition: 0.2s; }
-        .badge:hover { transform: scale(1.1); }
+        /* ИСПРАВЛЕННЫЙ БЕЙДЖИК (ТАБЛЕТКА) */
+        .badge { 
+            padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 5px; font-weight: bold; 
+            display: inline-block; text-shadow: none; cursor: help; transition: 0.2s; 
+            background: rgba(255,255,255,0.1); border: 1px solid var(--border); 
+        }
+        .badge:hover { transform: scale(1.1); border-color: var(--neon); }
         .hammer { margin-left: 5px; font-size: 14px; cursor: pointer; filter: drop-shadow(0 0 5px #ff0000); transition: 0.2s; }
         .hammer:hover { transform: scale(1.3); }
         
@@ -253,9 +253,9 @@ HTML_CODE = """
         <h1>MOGCLICKER</h1>
         <div style="font-size: 16px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap;">
             <span>Привет</span>, 
-            <span class="{% if user.color == 'rainbow' %}rainbow-text{% endif %}" style="color: {{ user.color if user.color != 'rainbow' else '' }}; font-weight: bold;">{{ user.username }}</span>
+            <span id="current-username" class="{% if user.color == 'rainbow' %}rainbow-text{% endif %}" style="color: {{ user.color if user.color != 'rainbow' else '' }}; font-weight: bold;">{{ user.username }}</span>
             {% if user.badge %}
-                <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000;{% endif %}" onclick="showToast('Этот бейдж коллекционный!', 'success')">{{ user.badge }}</span>
+                <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}" onclick="showToast('Этот бейдж коллекционный!', 'success')">{{ user.badge }}</span>
             {% endif %}
             | <span style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
@@ -283,8 +283,6 @@ HTML_CODE = """
             
             <h3>Кастомизация</h3>
             <div class="shop-item"><div>Бейдж "MOG" <br><small style="color: #888; font-size: 10px;">(14 дней)</small></div><button onclick="buyCustom('badge', 'MOG', 5000)">5,000 ₽</button></div>
-            <div class="shop-item"><div>Цвет бейджа <br><small style="color: #888; font-size: 10px;">(Красный)</small></div><button onclick="buyCustom('badge_color', '#ff4444', 2000)">2,000 ₽</button></div>
-            <div class="shop-item"><div>Цвет бейджа <br><small style="color: #888; font-size: 10px;">(Радужный)</small></div><button onclick="buyCustom('badge_color', 'rainbow', 10000)">10,000 ₽</button></div>
 
             <h3>Донат-валюта (💎)</h3>
             <div class="shop-item" style="opacity: 0.7;"><div>100 💎<br><small style="color: #ff4444;">(Скоро)</small></div><button class="btn-disabled">Купить</button></div>
@@ -351,7 +349,7 @@ HTML_CODE = """
 
         <div id="chat-container">
             <div id="chat-messages"></div>
-            <div id="chat-mute-status">Вы заглушены на <span id="mute-timer">0с</span></div>
+            <div id="chat-mute-status" style="display:none;">Вы заглушены на <span id="mute-timer">0с</span></div>
             <div id="chat-input-area">
                 <div id="chat-reply-bar"><span id="reply-text-preview" style="color:var(--gold); font-weight:bold;"></span><br><span id="reply-message-preview" style="color:#aaa; font-size:11px;"></span><span class="close-reply" onclick="cancelReply()">×</span></div>
                 <div class="chat-input-row">
@@ -362,7 +360,6 @@ HTML_CODE = """
         </div>
     {% endif %}
 
-    <!-- МОДАЛКИ -->
     <div class="modal" id="create-clan-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('create-clan-modal')">×</span>
@@ -382,31 +379,40 @@ HTML_CODE = """
 
     <script>
         const isLoggedIn = {{ 'true' if user and not user.is_banned else 'false' }};
-        const currentUserClanId = {{ user.clan_id if user else 'null' }};
+        const currentUserClanId = {{ user.clan_id if user and user.clan_id else 'null' }};
         let currentLang = "{{ user.lang if user else 'ru' }}";
         let currentTheme = "{{ user.theme if user else 'dark' }}";
         let currentZoom = parseInt("{{ user.zoom if user else 100 }}");
-        let balance = parseFloat("{{ user.balance if user else 0 }}");
-        let clickPower = parseInt("{{ user.click_power if user else 1 }}");
-        let autoIncome = parseFloat("{{ user.auto_income if user else 0 }}");
-        let muteUntil = parseFloat("{{ user.mute_until if user else 0 }}");
+        
+        // Защита от NaN (пустых полей из БД)
+        let balance = parseFloat("{{ user.balance|default(0, true) }}");
+        let clickPower = parseInt("{{ user.click_power|default(1, true) }}");
+        let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
+        let muteUntil = parseFloat("{{ user.mute_until|default(0, true) }}");
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
         let audioCtx = null;
-        function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (audioCtx.state === 'suspended') audioCtx.resume(); }
+        function initAudio() { 
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+                if (audioCtx.state === 'suspended') audioCtx.resume(); 
+            } catch(e) {}
+        }
         document.body.addEventListener('click', initAudio, { once: true });
         document.body.addEventListener('touchstart', initAudio, { once: true });
 
         function playSound(type) {
             if (!audioCtx) return;
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            if(type === 'click') { osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
-            else if(type === 'error') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
-            else if(type === 'success') { osc.type = 'triangle'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-            osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+            try {
+                const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+                if(type === 'click') { osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.05); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
+                else if(type === 'error') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, audioCtx.currentTime); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
+                else if(type === 'success') { osc.type = 'triangle'; osc.frequency.setValueAtTime(400, audioCtx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.1); gain.gain.setValueAtTime(0.1, audioCtx.currentTime); }
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+            } catch(e) {}
         }
 
         function showToast(text, type = 'success') {
@@ -487,7 +493,26 @@ HTML_CODE = """
         function buyCustom(type, value, price) {
             fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type, value, price}) })
             .then(res => res.json()).then(data => { 
-                if(data.success) { showToast("Успешно!", 'success'); balance = data.new_balance; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; setTimeout(() => location.reload(), 1000); } 
+                if(data.success) { 
+                    showToast("Успешно!", 'success'); 
+                    balance = data.new_balance; 
+                    document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
+                    if (type === 'badge') {
+                        let badgeEl = document.getElementById('current-badge');
+                        if(!badgeEl) {
+                            let nameEl = document.getElementById('current-username');
+                            let span = document.createElement('span');
+                            span.id = 'current-badge';
+                            span.className = 'badge';
+                            span.innerText = value;
+                            nameEl.parentNode.insertBefore(span, nameEl.nextSibling);
+                        } else {
+                            badgeEl.innerText = value;
+                            badgeEl.className = 'badge';
+                            badgeEl.style.display = 'inline-block';
+                        }
+                    }
+                } 
                 else showToast("Мало денег!", 'error'); 
             });
         }
@@ -538,7 +563,7 @@ HTML_CODE = """
             fetch('/api/top').then(res => res.json()).then(data => {
                 let html = ''; data.forEach((p, i) => {
                     let badgeClass = p.badge_color === 'rainbow' ? 'rainbow-text' : '';
-                    let badgeStyle = p.badge_color !== 'rainbow' ? `background:${p.badge_color}; color:#000;` : '';
+                    let badgeStyle = p.badge_color !== 'rainbow' ? `background:${p.badge_color}; color:#000; border-color:${p.badge_color};` : '';
                     let badgeHtml = p.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${p.badge}</span>` : '';
                     let hammerHtml = p.is_banned ? `<span class="hammer" onclick="showOtherBan('${p.username}')">🔨</span>` : '';
                     let nameClass = p.color === 'rainbow' ? 'rainbow-text' : '';
@@ -619,7 +644,7 @@ HTML_CODE = """
                     let nameClass = m.color === 'rainbow' ? 'rainbow-text' : '';
                     let nameStyle = m.color !== 'rainbow' ? `color:${m.color}; font-weight:bold;` : '';
                     let badgeClass = m.badge_color === 'rainbow' ? 'rainbow-text' : '';
-                    let badgeStyle = m.badge_color !== 'rainbow' ? `background:${m.badge_color}; color:#000;` : '';
+                    let badgeStyle = m.badge_color !== 'rainbow' ? `background:${m.badge_color}; color:#000; border-color:${m.badge_color};` : '';
                     let badgeHtml = m.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${m.badge}</span>` : '';
                     let replyHtml = '';
                     if(m.reply_user) { replyHtml = `<div class="chat-reply-preview" style="display:block; border-left-color:var(--neon); margin-bottom:8px;"><b>${m.reply_user}</b><br>${m.reply_text}</div>`; }
@@ -660,6 +685,7 @@ HTML_CODE = """
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
 
         function checkMuteStatus() {
+            if (!isLoggedIn) return;
             let now = Math.floor(Date.now() / 1000); 
             let muteTimeLeft = muteUntil - now;
             let inputArea = document.getElementById('chat-input-area'); 
@@ -771,8 +797,6 @@ def api_buy_custom():
     if user.balance >= data['price']:
         if data['type'] == 'badge':
             user.balance -= data['price']; user.badge = data['value']; user.badge_color = '#00ffcc'; user.badge_expire = time.time() + 14 * 86400
-        elif data['type'] == 'badge_color':
-            user.balance -= data['price']; user.badge_color = data['value']
         db.session.commit()
         return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
