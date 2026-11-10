@@ -3,6 +3,7 @@ import time
 import re
 import os
 import random
+import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
@@ -32,6 +33,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
     balance = db.Column(db.Float, default=0.0)
+    dollars = db.Column(db.Float, default=0.0)
     mog_coins = db.Column(db.Float, default=0.0)
     click_power = db.Column(db.Integer, default=1)
     auto_income = db.Column(db.Float, default=0.0)
@@ -54,6 +56,7 @@ class User(db.Model):
     skin = db.Column(db.String(50), default='')
     skin_mult = db.Column(db.Float, default=1.0)
     mod_rank = db.Column(db.Integer, default=0) 
+    privacy_pm = db.Column(db.Boolean, default=True)
 
 class Inventory(db.Model):
     __tablename__ = 'inventory'
@@ -81,6 +84,14 @@ class ChatMessage(db.Model):
     reply_text = db.Column(db.String(100), default='')
     is_red = db.Column(db.Boolean, default=False)
 
+class PrivateMessage(db.Model):
+    __tablename__ = 'private_messages'
+    id = db.Column(db.Integer, primary_key=True)
+    sender = db.Column(db.String(80))
+    receiver = db.Column(db.String(80))
+    text = db.Column(db.String(200))
+    timestamp = db.Column(db.Float)
+
 class Promocode(db.Model):
     __tablename__ = 'promocodes'
     code = db.Column(db.String(50), primary_key=True)
@@ -96,6 +107,8 @@ with app.app_context():
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS skin VARCHAR(50) DEFAULT '';"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS skin_mult FLOAT DEFAULT 1.0;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS mod_rank INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS dollars FLOAT DEFAULT 0.0;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_pm BOOLEAN DEFAULT TRUE;"))
             conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_red BOOLEAN DEFAULT FALSE;"))
             conn.commit()
     except Exception:
@@ -202,44 +215,41 @@ HTML_CODE = """
         .info-label { color: #0077ff; font-weight: bold; margin-bottom: 5px; font-size: 14px;}
         .info-value { color: #ffffff; margin-bottom: 15px; font-family: monospace; font-size: 15px; background: rgba(255,255,255,0.1); padding: 8px 10px; border-radius: 5px; }
         
-        #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
-        #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
-        .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; }
-        .chat-msg.red-text-msg { color: #ff4444 !important; border-left-color: #ff4444; font-weight: bold; } /* Жирный красный */
+        #chat-container, #pm-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
+        #chat-messages, #pm-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
+        .chat-msg, .pm-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; }
+        .chat-msg.red-text-msg { color: #ff4444 !important; border-left-color: #ff4444; font-weight: bold; } 
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
-        #chat-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
-        #chat-reply-bar { display: none; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 5px; font-size: 12px; text-align: left; border-left: 3px solid var(--gold); position: relative;}
-        .close-reply { position: absolute; right: 5px; top: 5px; cursor: pointer; color: #ff4444; font-weight: bold;}
-        
+        #chat-input-area, #pm-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
         .chat-input-row { display: flex; gap: 8px; width: 100%; align-items: center; }
-        #chat-input { flex: 1; min-width: 0; margin: 0; padding: 12px; border-radius: 20px; }
-        #chat-send { flex-shrink: 0; width: 48px; height: 48px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; }
+        #chat-input, #pm-input { flex: 1; min-width: 0; margin: 0; padding: 12px; border-radius: 20px; }
+        #chat-send, #pm-send { flex-shrink: 0; width: 48px; height: 48px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; }
         
-        /* КАЗИНО */
         .casino-box { background: rgba(0,0,0,0.4); border: 2px solid var(--gold); border-radius: 15px; padding: 20px; margin-bottom: 20px;}
         .casino-buttons { display: flex; gap: 10px; margin-top: 15px;}
         .casino-buttons button { flex: 1; font-size: 16px; padding: 12px; }
         #casino-result { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: center; height: 30px;}
         
-        /* МОНЕТКА (Упрощенная) */
         .coin-container { height: 120px; margin: 20px auto; display: none; text-align: center; }
         .coin-visual { font-size: 100px; line-height: 120px; transition: transform 0.1s; display: inline-block; }
 
-        /* КОЛЕСО */
-        .wheel-container { width: 220px; height: 220px; margin: 20px auto; position: relative; display: none; }
-        .wheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--gold); position: relative; background: conic-gradient(#ff4444 0deg 60deg, #444 60deg 120deg, #00ffcc 120deg 180deg, #444 180deg 240deg, #ffd700 240deg 300deg, #444 300deg 360deg); transition: transform 3s cubic-bezier(0.1, 0.7, 0.1, 1); }
-        .wheel-pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 30px; z-index: 10; filter: drop-shadow(0 0 5px #000); }
-        .wheel-label { position: absolute; left: 50%; top: 50%; margin-left: -15px; margin-top: -10px; font-size: 14px; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px #000; }
-
-        /* ИНВЕНТАРЬ */
         .inventory-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .inv-item { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 15px; text-align: center; }
         .inv-item h4 { margin: 0 0 5px 0; font-size: 16px; color: var(--gold); }
         .inv-item p { margin: 0 0 10px 0; font-size: 12px; color: #aaa; }
         .inv-item button { padding: 8px; font-size: 12px; width: 100%;}
         
-        /* МОД ПАНЕЛЬ */
         .mod-action-box { background: rgba(255, 68, 68, 0.1); border: 1px solid #ff4444; border-radius: 10px; padding: 15px; margin-bottom: 15px; }
+        
+        /* ОБМЕННИК */
+        .exchange-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 15px; padding: 15px; margin-bottom: 15px; text-align: left;}
+        .exchange-box h4 { margin-top: 0; color: var(--gold); }
+        .hologram { 
+            font-size: 24px; font-weight: bold; color: var(--neon); text-shadow: 0 0 10px var(--neon), 0 0 20px var(--neon); 
+            animation: hologramPulse 2s infinite alternate; text-align: center; margin: 10px 0;
+            background: rgba(0, 255, 204, 0.1); border: 1px dashed var(--neon); padding: 10px; border-radius: 10px;
+        }
+        @keyframes hologramPulse { from { opacity: 0.8; transform: scale(1); } to { opacity: 1; transform: scale(1.02); } }
     </style>
 </head>
 <body class="theme-{{ user.theme if user else 'dark' }}" style="zoom: {{ user.zoom if user else 100 }}%; font-family: '{{ user.font_family if user else 'Montserrat' }}', sans-serif;">
@@ -287,6 +297,7 @@ HTML_CODE = """
                 <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
             {% endif %}
             | <span style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
+            | <span style="color: #00ff00;">{{ user.dollars|int }} $</span>
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
         </div>
 
@@ -295,6 +306,8 @@ HTML_CODE = """
             <button onclick="switchTab('casino')" id="tab-casino" class="nav-btn">Казино</button>
             <button onclick="switchTab('shop')" id="tab-shop" class="nav-btn">Магазин</button>
             <button onclick="switchTab('inventory')" id="tab-inventory" class="nav-btn">Инвентарь</button>
+            <button onclick="switchTab('exchange')" id="tab-exchange" class="nav-btn">Обменник</button>
+            <button onclick="switchTab('pm')" id="tab-pm" class="nav-btn">ЛС</button>
             <button onclick="switchTab('transfer')" id="tab-transfer" class="nav-btn">Переводы</button>
             <button onclick="switchTab('top')" id="tab-top" class="nav-btn">Топ</button>
             <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn">Настройки</button>
@@ -304,7 +317,7 @@ HTML_CODE = """
         </div>
 
         <div id="view-game" class="view active">
-            <div id="score">{{ user.balance|int }} ₽</div>
+            <div id="score">{{ user.balance|int }}</div>
             <div id="coin" onclick="clickCoin(event)">₽</div>
             
             <div class="stats-box">
@@ -316,45 +329,17 @@ HTML_CODE = """
 
         <div id="view-casino" class="view">
             <h3>Казино</h3>
-            
-            <div style="display:flex; gap:5px; margin-bottom: 15px;">
-                <button class="nav-btn active" onclick="switchCasinoMode('coin')" id="mode-coin" style="flex:1;">Монетка</button>
-                <button class="nav-btn" onclick="switchCasinoMode('wheel')" id="mode-wheel" style="flex:1;">Колесо</button>
-            </div>
-
             <div id="casino-coin-mode" class="casino-box">
                 <p>Введи ставку и выбери сторону. Угадаешь — забираешь x2!</p>
                 <input type="number" id="casino-bet" placeholder="Сумма ставки">
-                
                 <div class="coin-container" id="coin-anim">
                     <div class="coin-visual" id="coin-element">🪙</div>
                 </div>
-
                 <div class="casino-buttons">
                     <button class="btn-main btn-gold" onclick="playCasino('heads')">Орёл 🦅</button>
                     <button class="btn-main btn-gold" onclick="playCasino('tails')">Решка 🪙</button>
                 </div>
             </div>
-
-            <div id="casino-wheel-mode" class="casino-box" style="display:none;">
-                <p>Введи ставку и крути колесо!</p>
-                <input type="number" id="wheel-bet" placeholder="Сумма ставки">
-                
-                <div class="wheel-container" id="wheel-anim">
-                    <div class="wheel-pointer">🔻</div>
-                    <div class="wheel" id="wheel-element">
-                        <div class="wheel-label" style="transform: rotate(30deg) translateY(-80px);">x0</div>
-                        <div class="wheel-label" style="transform: rotate(90deg) translateY(-80px);">x0.5</div>
-                        <div class="wheel-label" style="transform: rotate(150deg) translateY(-80px);">x1</div>
-                        <div class="wheel-label" style="transform: rotate(210deg) translateY(-80px);">x2</div>
-                        <div class="wheel-label" style="transform: rotate(270deg) translateY(-80px);">x5</div>
-                        <div class="wheel-label" style="transform: rotate(330deg) translateY(-80px);">x0</div>
-                    </div>
-                </div>
-
-                <button class="btn-main" onclick="playWheel()" style="margin-top:20px;">Крутить 🎡</button>
-            </div>
-
             <div id="casino-result"></div>
         </div>
 
@@ -388,9 +373,6 @@ HTML_CODE = """
             {% else %}
                 <div class="shop-item"><div>Бейдж "MOG" (14 дней)</div><button onclick="buyItem('badge', 'MOG', 5000, 0, this)">5,000 ₽</button></div>
             {% endif %}
-
-            <h3>Донат-валюта (💎)</h3>
-            <div class="shop-item" style="opacity: 0.7;"><div>100 💎<br><small style="color: #ff4444;">(Скоро)</small></div><button class="btn-disabled">Купить</button></div>
         </div>
 
         <div id="view-inventory" class="view">
@@ -399,6 +381,43 @@ HTML_CODE = """
             <div id="inv-skins" class="inventory-grid" style="margin-bottom:20px;"></div>
             <h4 style="text-align:left; margin-bottom:5px;">Бейджи</h4>
             <div id="inv-badges" class="inventory-grid"></div>
+        </div>
+
+        <div id="view-exchange" class="view">
+            <h3>Обменник валют</h3>
+            
+            <div class="exchange-box">
+                <h4>💎 Донат-валюта -> ₽ Рубли</h4>
+                <p>Курс: 1 💎 = 5,000 ₽</p>
+                <input type="number" id="ex-coins-amount" placeholder="Сколько 💎 менять?">
+                <button class="btn-main" onclick="doExchange('coins_to_rub')">Обменять на рубли</button>
+            </div>
+
+            <div class="exchange-box">
+                <h4>💵 Курс доллара</h4>
+                <div class="hologram" id="dollar-rate-display">Загрузка курса...</div>
+                <input type="number" id="ex-dollar-amount" placeholder="Сумма в $">
+                <button class="btn-main btn-gold" onclick="doExchange('rub_to_usd')">Купить доллары (за ₽)</button>
+                <button class="btn-main" onclick="doExchange('usd_to_rub')">Продать доллары (за ₽)</button>
+            </div>
+        </div>
+
+        <div id="view-pm" class="view">
+            <h3>Личные сообщения</h3>
+            <div id="pm-chat-list" style="margin-bottom: 15px;">
+                <!-- Список чатов -->
+            </div>
+            <div id="pm-active-chat" style="display:none;">
+                <button class="btn-main" style="background:var(--border); color:var(--text); padding:5px;" onclick="closePmChat()">← Назад к списку</button>
+                <h4 id="pm-target-name" style="margin: 10px 0;"></h4>
+                <div id="pm-messages"></div>
+                <div id="pm-input-area">
+                    <div class="chat-input-row">
+                        <input type="text" id="pm-input" placeholder="Сообщение..." onkeypress="handlePmEnter(event)">
+                        <button id="pm-send" class="btn-main" onclick="sendPm()">➤</button>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="view-transfer" class="view">
@@ -445,6 +464,15 @@ HTML_CODE = """
             <div class="setting-item" onclick="openModal('lang-modal')"><span>Язык</span><span id="display-lang">Русский</span></div>
             <div class="setting-item" onclick="openModal('theme-modal')"><span>Тема</span><span id="display-theme">Тёмная</span></div>
             <div class="setting-item" onclick="openModal('font-modal')"><span>Шрифт</span><span id="display-font">{{ user.font_family }}</span></div>
+            
+            <div class="setting-item" style="justify-content: space-between;">
+                <span>Личные сообщения (Приватность)</span>
+                <label style="cursor:pointer;">
+                    <input type="checkbox" id="privacy-pm-toggle" {% if user.privacy_pm %}checked{% endif %} onchange="togglePmPrivacy(this.checked)">
+                    Включены
+                </label>
+            </div>
+
             <div class="setting-item" style="flex-direction: column; align-items: flex-start;">
                 <div style="display:flex; justify-content:space-between; width:100%;"><span>Масштаб UI</span><span id="zoom-val">{{ user.zoom }}%</span></div>
                 <input type="range" id="set-zoom" min="50" max="150" step="10" value="{{ user.zoom }}" oninput="updateZoom(this.value)">
@@ -474,7 +502,6 @@ HTML_CODE = """
         </div>
     {% endif %}
 
-    <!-- МОДАЛКИ -->
     <div class="modal" id="profile-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
@@ -482,10 +509,12 @@ HTML_CODE = """
             <div class="info-label">НИК:</div><div class="info-value" id="p-nick"></div>
             <div class="info-label">ДОЛЖНОСТЬ:</div><div class="info-value" id="p-modrank" style="color: var(--neon);"></div>
             <div class="info-label">БАЛАНС:</div><div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
+            <div class="info-label">ДОЛЛАРЫ:</div><div class="info-value" id="p-dollars" style="color: #00ff00; font-weight: bold;"></div>
             <div class="info-label">ДОНАТ-ВАЛЮТА:</div><div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
             <div class="info-label">МУЛЬТИКЛИК ЛВЛ:</div><div class="info-value" id="p-multi"></div>
             <div class="info-label">АВТОКЛИКЕР ЛВЛ:</div><div class="info-value" id="p-auto"></div>
             <div class="info-label">ДАТА РЕГИСТРАЦИИ:</div><div class="info-value" id="p-date"></div>
+            <button class="btn-main" onclick="messageUserFromProfile()" style="margin-top:15px;">Написать сообщение (ЛС)</button>
         </div>
     </div>
 
@@ -506,15 +535,30 @@ HTML_CODE = """
 
     <script>
         let balance = parseFloat("{{ user.balance|default(0, true) }}");
+        let dollars = parseFloat("{{ user.dollars|default(0, true) }}");
+        let mogCoins = parseFloat("{{ user.mog_coins|default(0, true) }}");
         let clickPower = parseInt("{{ user.click_power|default(1, true) }}");
         let skinMult = parseFloat("{{ user.skin_mult|default(1, true) }}");
         let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
         let muteUntil = parseFloat("{{ user.mute_until|default(0, true) }}");
-        
         let currentMultiPrice = parseInt("{{ multi_price }}");
         let currentAutoPrice = parseInt("{{ auto_price }}");
-
+        let currentProfileTarget = null;
+        let currentPmTarget = null;
         let lastMessageTime = 0;
+        let dollarRate = 90.0;
+
+        // ФОРМАТИРОВАНИЕ ЧИСЕЛ
+        function formatNum(num) {
+            if (num >= 1e9) return (num / 1e9).toFixed(1).replace(/\\.0$/, '') + 'B';
+            if (num >= 1e6) return (num / 1e6).toFixed(1).replace(/\\.0$/, '') + 'M';
+            if (num >= 1e3) return (num / 1e3).toFixed(1).replace(/\\.0$/, '') + 'k';
+            return Math.floor(num).toString();
+        }
+
+        function updateUI() {
+            document.getElementById('score').innerText = formatNum(balance) + ' ₽';
+        }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -539,11 +583,7 @@ HTML_CODE = """
         function showToast(text, type = 'success') {
             playSound(type); 
             const container = document.getElementById('toast-container'); 
-            
-            if (container.children.length >= 3) {
-                container.removeChild(container.firstElementChild);
-            }
-            
+            if (container.children.length >= 3) container.removeChild(container.firstElementChild);
             const toast = document.createElement('div');
             toast.className = `toast ${type}`; toast.innerText = text; container.appendChild(toast); 
             setTimeout(() => toast.remove(), 3000);
@@ -577,15 +617,9 @@ HTML_CODE = """
             fetch('/' + action, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) })
             .then(res => res.json().then(data => ({status: res.status, data})))
             .then(res => {
-                if(res.status === 200 && res.data.success) {
-                    window.location.href = '/'; 
-                }
-                else if (res.status === 403 && res.data.banned) {
-                    window.location.reload(); 
-                } 
-                else {
-                    showToast(action === 'login' ? "Неверный логин или пароль!" : "Логин занят!", 'error');
-                }
+                if(res.status === 200 && res.data.success) window.location.href = '/'; 
+                else if (res.status === 403 && res.data.banned) window.location.reload(); 
+                else showToast(action === 'login' ? "Неверный логин или пароль!" : "Логин занят!", 'error');
             });
         }
 
@@ -598,20 +632,15 @@ HTML_CODE = """
             if(tab === 'top') loadTop();
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
             if(tab === 'inventory') loadInventory();
-        }
-
-        function switchCasinoMode(mode) {
-            document.getElementById('casino-coin-mode').style.display = mode === 'coin' ? 'block' : 'none';
-            document.getElementById('casino-wheel-mode').style.display = mode === 'wheel' ? 'block' : 'none';
-            document.getElementById('mode-coin').classList.toggle('active', mode === 'coin');
-            document.getElementById('mode-wheel').classList.toggle('active', mode === 'wheel');
-            document.getElementById('casino-result').innerText = '';
+            if(tab === 'exchange') loadExchange();
+            if(tab === 'pm') loadPmChats();
         }
 
         setInterval(() => {
             fetch('/api/user').then(r => { if(r.status === 403) { window.location.reload(); return; } return r.json(); }).then(data => {
                 if(data && data.success) {
-                    if(data.balance !== balance) { balance = data.balance; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; }
+                    if(data.balance !== balance) { balance = data.balance; updateUI(); }
+                    if(data.dollars !== dollars) { dollars = data.dollars; }
                     clickPower = data.click_power; autoIncome = data.auto_income; muteUntil = data.mute_until; skinMult = data.skin_mult;
                     document.getElementById('ui-click-power').innerText = clickPower; document.getElementById('ui-auto-income').innerText = autoIncome;
                     checkMuteStatus();
@@ -622,7 +651,7 @@ HTML_CODE = """
         setInterval(() => {
             if(autoIncome <= 0) return;
             balance += autoIncome;
-            document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+            updateUI();
             fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: autoIncome}) });
         }, 1000);
 
@@ -630,17 +659,17 @@ HTML_CODE = """
             initAudio(); 
             let addAmount = clickPower * skinMult;
             balance += addAmount;
+            updateUI();
             const scoreEl = document.getElementById('score');
-            scoreEl.innerText = Math.floor(balance) + ' ₽'; scoreEl.style.transform = "scale(1.1)";
+            scoreEl.style.transform = "scale(1.1)";
             setTimeout(() => scoreEl.style.transform = "scale(1)", 100); playSound('click');
-            const el = document.createElement('div'); el.className = 'floating'; el.innerText = '+' + addAmount + ' ₽';
+            const el = document.createElement('div'); el.className = 'floating'; el.innerText = '+' + formatNum(addAmount) + ' ₽';
             el.style.left = (e.clientX - 20) + 'px'; el.style.top = (e.clientY - 40) + 'px';
             document.body.appendChild(el); setTimeout(() => el.remove(), 800);
             fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: clickPower}) })
             .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
         }
 
-        // --- КАЗИНО (МОНЕТКА) ---
         function playCasino(choice) {
             let bet = parseFloat(document.getElementById('casino-bet').value);
             if(!bet || bet <= 0) return showToast("Неверная ставка!", 'error');
@@ -654,7 +683,6 @@ HTML_CODE = """
             resEl.innerText = '';
             document.getElementById('casino-bet').disabled = true;
             
-            // Анимация подбрасывания
             let tossInterval = setInterval(() => {
                 coinElement.innerText = coinElement.innerText === '🪙' ? '🦅' : '🪙';
                 coinElement.style.transform = coinElement.style.transform === 'scaleY(-1)' ? 'scaleY(1)' : 'scaleY(-1)';
@@ -668,18 +696,17 @@ HTML_CODE = """
                 .then(res => res.json()).then(data => {
                     if(data.success) {
                         balance = data.new_balance;
-                        document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+                        updateUI();
                         
-                        // Финальный результат
                         coinElement.innerText = data.result === 'heads' ? '🦅' : '🪙';
                         coinElement.style.transform = 'scaleY(1)';
 
                         if(data.win) {
-                            resEl.innerText = `ПОБЕДА! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} +${bet} ₽`;
+                            resEl.innerText = `ПОБЕДА! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} +${formatNum(bet)} ₽`;
                             resEl.style.color = 'var(--neon)';
                             playSound('success');
                         } else {
-                            resEl.innerText = `ПРОИГРЫШ! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} -${bet} ₽`;
+                            resEl.innerText = `ПРОИГРЫШ! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} -${formatNum(bet)} ₽`;
                             resEl.style.color = '#ff4444';
                             playSound('error');
                         }
@@ -688,84 +715,21 @@ HTML_CODE = """
             }, 1500);
         }
 
-        // --- КАЗИНО (КОЛЕСО) ---
-        function playWheel() {
-            let bet = parseFloat(document.getElementById('wheel-bet').value);
-            if(!bet || bet <= 0) return showToast("Неверная ставка!", 'error');
-            if(balance < bet) return showToast("Недостаточно денег!", 'error');
-
-            document.getElementById('wheel-anim').style.display = 'block';
-            let resEl = document.getElementById('casino-result');
-            resEl.innerText = '';
-            document.getElementById('wheel-bet').disabled = true;
-            
-            let wheel = document.getElementById('wheel-element');
-            
-            fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, mode: 'wheel'}) })
-            .then(res => res.json()).then(data => {
-                if(data.success) {
-                    let mult = data.mult;
-                    let targetAngle = 0;
-                    
-                    if (mult === 0) targetAngle = 30;
-                    else if (mult === 0.5) targetAngle = 90;
-                    else if (mult === 1) targetAngle = 150;
-                    else if (mult === 2) targetAngle = 210;
-                    else if (mult === 5) targetAngle = 270;
-                    
-                    let spinDegrees = 1440 + (360 - targetAngle);
-                    wheel.style.transform = `rotate(${spinDegrees}deg)`;
-
-                    setTimeout(() => {
-                        document.getElementById('wheel-bet').disabled = false;
-                        balance = data.new_balance;
-                        document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
-                        
-                        if(data.mult > 1) {
-                            resEl.innerText = `ВЫИГРЫШ x${data.mult}! +${bet * data.mult} ₽`;
-                            resEl.style.color = 'var(--neon)';
-                            playSound('success');
-                        } else if(data.mult === 0) {
-                            resEl.innerText = `x0. ПРОИГРЫШ! -${bet} ₽`;
-                            resEl.style.color = '#ff4444';
-                            playSound('error');
-                        } else if(data.mult === 1) {
-                            resEl.innerText = `x1. ВОЗВРАТ.`;
-                            resEl.style.color = '#fff';
-                            playSound('success');
-                        } else {
-                            resEl.innerText = `x${data.mult}. ПРОИГРЫШ! -${bet - (bet * data.mult)} ₽`;
-                            resEl.style.color = '#ff4444';
-                            playSound('error');
-                        }
-                        
-                        setTimeout(() => { 
-                            wheel.style.transition = 'none'; 
-                            wheel.style.transform = 'rotate(0deg)'; 
-                            setTimeout(() => wheel.style.transition = 'transform 3s cubic-bezier(0.1, 0.7, 0.1, 1)', 50);
-                        }, 2000);
-                    }, 3000); 
-                } else showToast(data.error, 'error');
-            });
-        }
-
-        // --- МАГАЗИН ---
         function buyUpgrade(type) {
             fetch('/api/buy', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: type}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { 
                     showToast("Успешно!", 'success'); 
-                    balance = data.new_balance; 
-                    document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
+                    balance = data.new_balance; updateUI(); 
                     
                     if(type === 'multi') {
                         clickPower = data.new_power; currentMultiPrice = data.new_price;
                         document.getElementById('ui-click-power').innerText = clickPower;
-                        document.getElementById('btn-multi').innerText = currentMultiPrice + ' ₽';
+                        document.getElementById('btn-multi').innerText = formatNum(currentMultiPrice) + ' ₽';
                     } else if(type === 'auto') {
                         autoIncome = data.new_income; currentAutoPrice = data.new_price;
                         document.getElementById('ui-auto-income').innerText = autoIncome;
-                        document.getElementById('btn-auto').innerText = currentAutoPrice + ' ₽';
+                        document.getElementById('btn-auto').innerText = formatNum(currentAutoPrice) + ' ₽';
                     }
                 } 
                 else showToast(data.error, 'error'); 
@@ -778,9 +742,8 @@ HTML_CODE = """
             fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: type, name: name, price: price, mult: mult}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { 
-                    showToast("Куплено! Загляни в инвентарь.", 'success'); 
-                    balance = data.new_balance; 
-                    document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
+                    showToast("Куплено!", 'success'); 
+                    balance = data.new_balance; updateUI(); 
                     btn.innerText = 'Куплено';
                     btn.classList.add('btn-disabled');
                     btn.disabled = true;
@@ -789,27 +752,21 @@ HTML_CODE = """
             });
         }
 
-        // --- ИНВЕНТАРЬ ---
         function loadInventory() {
             fetch('/api/inventory').then(res => res.json()).then(data => {
-                let skinsHtml = '';
-                let badgesHtml = '';
-                
+                let skinsHtml = ''; let badgesHtml = '';
                 data.items.forEach(item => {
                     let btn = item.is_equipped 
                         ? `<button class="btn-danger" onclick="unequipItem(${item.id})">Снять</button>` 
                         : `<button onclick="equipItem(${item.id})">Надеть</button>`;
-                    
                     let html = `<div class="inv-item">
                                     <h4>${item.item_name}</h4>
                                     <p>${item.item_type === 'skin' ? 'x' + item.item_mult : 'Бейдж'}</p>
                                     ${btn}
                                 </div>`;
-                                
                     if(item.item_type === 'skin') skinsHtml += html;
                     else badgesHtml += html;
                 });
-                
                 document.getElementById('inv-skins').innerHTML = skinsHtml || '<div style="grid-column:1/-1; color:#888;">Пусто</div>';
                 document.getElementById('inv-badges').innerHTML = badgesHtml || '<div style="grid-column:1/-1; color:#888;">Пусто</div>';
             });
@@ -829,7 +786,109 @@ HTML_CODE = """
             });
         }
 
-        // --- МОДЕРАЦИЯ ---
+        // ОБМЕННИК
+        function loadExchange() {
+            fetch('/api/dollar_rate').then(res => res.json()).then(data => {
+                dollarRate = data.rate;
+                document.getElementById('dollar-rate-display').innerText = `1 $ = ${dollarRate.toFixed(2)} ₽`;
+            });
+        }
+
+        function doExchange(type) {
+            let amount = 0;
+            if(type === 'coins_to_rub') {
+                amount = parseFloat(document.getElementById('ex-coins-amount').value);
+                if(!amount || amount <= 0) return showToast("Неверная сумма!", 'error');
+            } else {
+                amount = parseFloat(document.getElementById('ex-dollar-amount').value);
+                if(!amount || amount <= 0) return showToast("Неверная сумма!", 'error');
+            }
+
+            fetch('/api/exchange', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: type, amount: amount}) })
+            .then(res => res.json()).then(data => {
+                if(data.success) {
+                    showToast(data.msg, 'success');
+                    balance = data.new_balance; dollars = data.new_dollars; mogCoins = data.new_coins;
+                    updateUI();
+                } else showToast(data.error, 'error');
+            });
+        }
+
+        // ЛС (ПРИВАТНЫЕ СООБЩЕНИЯ)
+        function messageUserFromProfile() {
+            let target = document.getElementById('p-nick').innerText.split(' ')[0]; // грубо, но работает
+            closeModal('profile-modal');
+            switchTab('pm');
+            openPmChat(target);
+        }
+
+        function loadPmChats() {
+            fetch('/api/pm/list').then(res => res.json()).then(data => {
+                let html = '';
+                if(data.chats.length === 0) html = '<div style="color:#888; text-align:center;">Нет активных диалогов</div>';
+                data.chats.forEach(c => {
+                    html += `<div class="shop-item" style="cursor:pointer;" onclick="openPmChat('${c.username}')">
+                                <div><b>${c.username}</b></div>
+                                <div style="font-size:12px; color:#888;">${c.last_msg}</div>
+                             </div>`;
+                });
+                document.getElementById('pm-chat-list').innerHTML = html;
+            });
+        }
+
+        function openPmChat(username) {
+            currentPmTarget = username;
+            document.getElementById('pm-chat-list').style.display = 'none';
+            document.getElementById('pm-active-chat').style.display = 'block';
+            document.getElementById('pm-target-name').innerText = "Чат с: " + username;
+            loadPmMessages();
+        }
+
+        function closePmChat() {
+            currentPmTarget = null;
+            document.getElementById('pm-chat-list').style.display = 'block';
+            document.getElementById('pm-active-chat').style.display = 'none';
+            loadPmChats();
+        }
+
+        function loadPmMessages() {
+            if(!currentPmTarget) return;
+            fetch('/api/pm/get?target=' + currentPmTarget).then(res => res.json()).then(data => {
+                let container = document.getElementById('pm-messages');
+                let isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
+                let html = '';
+                data.messages.forEach(m => {
+                    let time = new Date(m.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    let align = m.sender === "{{ user.username }}" ? "right" : "left";
+                    let color = m.sender === "{{ user.username }}" ? "var(--neon)" : "var(--gold)";
+                    html += `<div class="pm-msg" style="text-align:${align}; border-left:none; border-${align === 'right' ? 'right' : 'left'}:3px solid ${color};">
+                                <span style="font-size:10px; color:#888;">${m.sender}</span> <span style="font-size:10px; color:#888;">${time}</span><br>${m.text}
+                             </div>`;
+                });
+                container.innerHTML = html;
+                if(isScrolledToBottom) container.scrollTop = container.scrollHeight;
+            });
+        }
+
+        function sendPm() {
+            if(!currentPmTarget) return;
+            let inp = document.getElementById('pm-input');
+            if(!inp.value.trim()) return;
+            
+            fetch('/api/pm/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target: currentPmTarget, text: inp.value}) })
+            .then(res => res.json()).then(data => {
+                if(data.success) { inp.value = ''; loadPmMessages(); }
+                else showToast(data.error, 'error');
+            });
+        }
+        function handlePmEnter(e) { if(e.key === 'Enter') sendPm(); }
+
+        function togglePmPrivacy(val) {
+            fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: 'privacy_pm', value: val}) })
+            .then(() => showToast("Приватность ЛС обновлена!", 'success'));
+        }
+
+        // ОСТАЛЬНОЕ
         function doModAction(action) {
             let target = document.getElementById('mod-target').value;
             let dur = parseInt(document.getElementById('mod-duration').value);
@@ -845,13 +904,10 @@ HTML_CODE = """
                     document.getElementById('mod-target').value = '';
                     document.getElementById('mod-duration').value = '';
                     document.getElementById('mod-reason').value = '';
-                } else {
-                    showToast(data.error, 'error');
-                }
+                } else showToast(data.error, 'error');
             });
         }
 
-        // --- ОСТАЛЬНОЕ ---
         function loadTop() {
             fetch('/api/top').then(res => res.json()).then(data => {
                 let html = ''; data.forEach((p, i) => {
@@ -864,7 +920,7 @@ HTML_CODE = """
                     let nameStyle = p.color !== 'rainbow' ? `style="color:${p.color}; font-weight:bold;"` : '';
                     html += `<div class="top-player" onclick="openProfile('${p.username}')">
                                 <span>#${i+1} <span class="${nameClass}" ${nameStyle}>${p.username}</span> ${modHtml} ${badgeHtml}${hammerHtml}</span> 
-                                <span>${Math.floor(p.balance)} ₽</span>
+                                <span>${formatNum(p.balance)} ₽</span>
                              </div>`;
                 });
                 document.getElementById('top-list').innerHTML = html;
@@ -891,11 +947,13 @@ HTML_CODE = """
                 else rankName = 'Игрок';
                 document.getElementById('p-modrank').innerText = rankName;
 
-                document.getElementById('p-balance').innerText = Math.floor(data.balance) + ' ₽';
-                document.getElementById('p-coins').innerText = Math.floor(data.mog_coins) + ' 💎';
+                document.getElementById('p-balance').innerText = formatNum(data.balance) + ' ₽';
+                document.getElementById('p-dollars').innerText = formatNum(data.dollars) + ' $';
+                document.getElementById('p-coins').innerText = formatNum(data.mog_coins) + ' 💎';
                 document.getElementById('p-multi').innerText = data.click_power;
                 document.getElementById('p-auto').innerText = data.auto_income + '/с';
                 document.getElementById('p-date').innerText = data.created_at;
+                currentProfileTarget = data.username;
                 openModal('profile-modal');
             });
         }
@@ -933,7 +991,7 @@ HTML_CODE = """
             if(!nick || !amount || amount <= 0) return showToast("Заполни поля!", "error");
             fetch('/api/transfer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({receiver: nick, amount: amount}) })
             .then(res => res.json()).then(data => {
-                if(data.success) { showToast("Перевод успешен!", 'success'); document.getElementById('tr-nick').value = ''; document.getElementById('tr-amount').value = ''; balance -= amount; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; loadTransfers('day', document.querySelector('#view-transfer .nav-btn')); } 
+                if(data.success) { showToast("Перевод успешен!", 'success'); document.getElementById('tr-nick').value = ''; document.getElementById('tr-amount').value = ''; balance -= amount; updateUI(); loadTransfers('day', document.querySelector('#view-transfer .nav-btn')); } 
                 else showToast(data.error, 'error');
             });
         }
@@ -942,11 +1000,11 @@ HTML_CODE = """
             document.querySelectorAll('#view-transfer .nav-btn').forEach(b => { b.classList.remove('active'); });
             if(btn) btn.classList.add('active');
             fetch('/api/transfers/top?period=' + period).then(res => res.json()).then(data => {
-                let html = ''; data.forEach((t, i) => { html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">#${i+1} <b>${t.sender}</b> -> <b>${t.total}</b> ₽</div>`; });
+                let html = ''; data.forEach((t, i) => { html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">#${i+1} <b>${t.sender}</b> -> <b>${formatNum(t.total)}</b> ₽</div>`; });
                 document.getElementById('transfer-top-list').innerHTML = html || '<div style="color:#888;">-</div>';
             });
             fetch('/api/transfers/my').then(res => res.json()).then(data => {
-                let html = ''; data.forEach(t => { let date = new Date(t.timestamp * 1000).toLocaleString(); html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">Вы -> <b>${t.receiver}</b> (${t.amount} ₽) <br><span style="font-size:10px; color:#888;">${date}</span></div>`; });
+                let html = ''; data.forEach(t => { let date = new Date(t.timestamp * 1000).toLocaleString(); html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">Вы -> <b>${t.receiver}</b> (${formatNum(t.amount)} ₽) <br><span style="font-size:10px; color:#888;">${date}</span></div>`; });
                 document.getElementById('my-transfer-list').innerHTML = html || '<div style="color:#888;">-</div>';
             });
         }
@@ -1007,7 +1065,7 @@ HTML_CODE = """
         function sendChat() {
             let now = Date.now();
             if (now - lastMessageTime < 3000) {
-                return showToast("Подожди 3 секунды перед отправкой!", 'error');
+                return showToast("Подожди 3 секунды!", 'error');
             }
             lastMessageTime = now;
 
@@ -1020,10 +1078,7 @@ HTML_CODE = """
             fetch('/api/chat/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: inp.value, reply_user: currentReplyUser, reply_text: currentReplyText, is_red: isRed}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { inp.value = ''; cancelReply(); loadChat(); } 
-                else { 
-                    showToast(data.error, 'error'); 
-                    lastMessageTime = 0;
-                } 
+                else { showToast(data.error, 'error'); lastMessageTime = 0; } 
             });
         }
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
@@ -1049,7 +1104,9 @@ HTML_CODE = """
         setInterval(checkMuteStatus, 1000);
         
         window.onload = () => { 
+            updateUI();
             setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); 
+            setInterval(loadPmMessages, 3000);
         };
     </script>
 </body>
@@ -1064,22 +1121,14 @@ def index():
     
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
-        if not user: 
-            session.pop('user_id', None)
+        if not user: session.pop('user_id', None)
         elif user.is_banned:
             if time.time() >= user.ban_until:
-                user.is_banned = 0
-                user.ban_reason = ""
-                user.ban_msg = ""
-                user.ban_until = 0
-                user.ban_duration = ""
+                user.is_banned = 0; user.ban_reason = ""; user.ban_msg = ""; user.ban_until = 0; user.ban_duration = ""
                 db.session.commit()
-            else: 
-                remaining_seconds = int(user.ban_until - time.time())
+            else: remaining_seconds = int(user.ban_until - time.time())
         if user and user.badge_expire > 0 and time.time() > user.badge_expire:
-            user.badge = ''
-            user.badge_expire = 0
-            db.session.commit()
+            user.badge = ''; user.badge_expire = 0; db.session.commit()
             
         if user:
             inv_items = Inventory.query.filter_by(user_id=user.id).all()
@@ -1091,178 +1140,209 @@ def index():
 
 @app.route('/api/user')
 def api_user():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    if not user: 
-        return jsonify({'error': 'No user'}), 401
-    if user.is_banned: 
-        return jsonify({'error': 'Banned'}), 403
-    return jsonify({'success': True, 'balance': user.balance, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult})
+    if not user: return jsonify({'error': 'No user'}), 401
+    if user.is_banned: return jsonify({'error': 'Banned'}), 403
+    return jsonify({'success': True, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult})
 
 @app.route('/api/profile/<username>')
 def api_profile(username):
     user = User.query.filter_by(username=username).first()
-    if not user: 
-        return jsonify({'error': 'Not found'}), 404
+    if not user: return jsonify({'error': 'Not found'}), 404
     date_str = time.strftime('%d.%m.%Y', time.localtime(user.created_at if user.created_at else time.time()))
-    return jsonify({
-        'username': user.username,
-        'balance': user.balance,
-        'mog_coins': user.mog_coins,
-        'badge': user.badge,
-        'badge_color': user.badge_color,
-        'color': user.color,
-        'click_power': user.click_power,
-        'auto_income': user.auto_income,
-        'mod_rank': user.mod_rank,
-        'created_at': date_str
-    })
+    return jsonify({'username': user.username, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'badge': user.badge, 'badge_color': user.badge_color, 'color': user.color, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mod_rank': user.mod_rank, 'created_at': date_str})
+
+@app.route('/api/dollar_rate')
+def api_dollar_rate():
+    try:
+        import urllib.request
+        req = urllib.request.Request('https://www.cbr-xml-daily.ru/daily_json.js')
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+            return jsonify({'rate': data['Valute']['USD']['Value']})
+    except Exception:
+        return jsonify({'rate': 90.0})
+
+@app.route('/api/exchange', methods=['POST'])
+def api_exchange():
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; user = User.query.get(session['user_id'])
+    
+    if data['type'] == 'coins_to_rub':
+        amount = data['amount']
+        if user.mog_coins >= amount:
+            user.mog_coins -= amount
+            user.balance += amount * 5000
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Обменяно {amount} 💎 на {amount*5000} ₽', 'new_balance': user.balance, 'new_dollars': user.dollars, 'new_coins': user.mog_coins})
+            
+    elif data['type'] == 'rub_to_usd':
+        amount = data['amount']
+        rate = 90.0 
+        try:
+            import urllib.request
+            req = urllib.request.Request('https://www.cbr-xml-daily.ru/daily_json.js')
+            with urllib.request.urlopen(req) as response: rate = json.loads(response.read().decode())['Valute']['USD']['Value']
+        except: pass
+        
+        cost = amount * rate
+        if user.balance >= cost:
+            user.balance -= cost
+            user.dollars += amount
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Куплено {amount} $ за {cost:.0f} ₽', 'new_balance': user.balance, 'new_dollars': user.dollars, 'new_coins': user.mog_coins})
+        else: return jsonify({'error': 'Мало рублей!'}), 400
+
+    elif data['type'] == 'usd_to_rub':
+        amount = data['amount']
+        if user.dollars >= amount:
+            rate = 90.0
+            try:
+                import urllib.request
+                req = urllib.request.Request('https://www.cbr-xml-daily.ru/daily_json.js')
+                with urllib.request.urlopen(req) as response: rate = json.loads(response.read().decode())['Valute']['USD']['Value']
+            except: pass
+            
+            user.dollars -= amount
+            user.balance += amount * rate
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Продано {amount} $ за {amount*rate:.0f} ₽', 'new_balance': user.balance, 'new_dollars': user.dollars, 'new_coins': user.mog_coins})
+
+    return jsonify({'error': 'Ошибка'}), 400
+
+@app.route('/api/pm/list')
+def api_pm_list():
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    user = User.query.get(session['user_id'])
+    
+    from sqlalchemy import or_, and_, func
+    chats = db.session.query(
+        func.distinct(func.if_(PrivateMessage.sender == user.username, PrivateMessage.receiver, PrivateMessage.sender))
+    ).filter(or_(PrivateMessage.sender == user.username, PrivateMessage.receiver == user.username)).all()
+    
+    res = []
+    for chat in chats:
+        target = chat[0]
+        last = PrivateMessage.query.filter(or_(
+            and_(PrivateMessage.sender == user.username, PrivateMessage.receiver == target),
+            and_(PrivateMessage.sender == target, PrivateMessage.receiver == user.username)
+        )).order_by(PrivateMessage.timestamp.desc()).first()
+        if last:
+            res.append({'username': target, 'last_msg': last.text[:20]})
+    return jsonify({'chats': res})
+
+@app.route('/api/pm/get')
+def api_pm_get():
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    user = User.query.get(session['user_id'])
+    target = request.args.get('target')
+    
+    from sqlalchemy import or_, and_
+    msgs = PrivateMessage.query.filter(or_(
+        and_(PrivateMessage.sender == user.username, PrivateMessage.receiver == target),
+        and_(PrivateMessage.sender == target, PrivateMessage.receiver == user.username)
+    )).order_by(PrivateMessage.timestamp.asc()).limit(50).all()
+    
+    return jsonify({'messages': [{'sender': m.sender, 'text': m.text, 'timestamp': m.timestamp} for m in msgs]})
+
+@app.route('/api/pm/send', methods=['POST'])
+def api_pm_send():
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    user = User.query.get(session['user_id'])
+    data = request.json; target = User.query.filter_by(username=data['target']).first()
+    
+    if not target: return jsonify({'error': 'Игрок не найден'}), 404
+    if not target.privacy_pm: return jsonify({'error': 'У игрока отключены ЛС'}), 403
+    
+    msg = PrivateMessage(sender=user.username, receiver=target.username, text=data['text'][:200], timestamp=time.time())
+    db.session.add(msg); db.session.commit()
+    return jsonify({'success': True})
 
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.json
-    u, p = data['username'], data['password']
-    if re.search('[а-яА-ЯёЁ]', u) or re.search('[а-яА-ЯёЁ]', p): 
-        return jsonify({'error': 'Cyrillic'}), 400
-    if User.query.filter_by(username=u).first(): 
-        return jsonify({'error': 'Taken'}), 400
+    data = request.json; u, p = data['username'], data['password']
+    if re.search('[а-яА-ЯёЁ]', u) or re.search('[а-яА-ЯёЁ]', p): return jsonify({'error': 'Cyrillic'}), 400
+    if User.query.filter_by(username=u).first(): return jsonify({'error': 'Taken'}), 400
     user = User(username=u, password=generate_password_hash(p))
-    db.session.add(user)
-    db.session.commit()
-    session.permanent = True
-    session['user_id'] = user.id
+    db.session.add(user); db.session.commit()
+    session.permanent = True; session['user_id'] = user.id
     return jsonify({'success': True}), 200
 
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.json
-    user = User.query.filter_by(username=data['username']).first()
+    data = request.json; user = User.query.filter_by(username=data['username']).first()
     if user and check_password_hash(user.password, data['password']):
         if user.is_banned:
             if time.time() >= user.ban_until:
-                user.is_banned = 0
-                user.ban_reason = ""
-                user.ban_msg = ""
-                user.ban_until = 0
-                user.ban_duration = ""
-                db.session.commit()
-            else: 
-                return jsonify({'banned': True}), 403
-        session.permanent = True
-        session['user_id'] = user.id
+                user.is_banned = 0; user.ban_reason = ""; user.ban_msg = ""; user.ban_until = 0; user.ban_duration = ""; db.session.commit()
+            else: return jsonify({'banned': True}), 403
+        session.permanent = True; session['user_id'] = user.id
         return jsonify({'success': True}), 200
     return jsonify({'error': 'Bad auth'}), 401
 
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
-    return redirect(url_for('index'))
+    session.pop('user_id', None); return redirect(url_for('index'))
 
 @app.route('/api/click', methods=['POST'])
 def api_click():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    if not user: 
-        return jsonify({'error': 'No user'}), 401
+    if not user: return jsonify({'error': 'No user'}), 401
     if user.is_banned:
-        db.session.delete(user)
-        db.session.commit()
-        session.pop('user_id', None)
+        db.session.delete(user); db.session.commit(); session.pop('user_id', None)
         return jsonify({'error': 'banned_deleted'}), 403
     
     amount = request.json.get('amount', 1) * user.skin_mult
-    user.balance += amount
-    db.session.commit()
+    user.balance += amount; db.session.commit()
     return jsonify({'success': True})
 
 @app.route('/api/casino/bet', methods=['POST'])
 def api_casino_bet():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    bet = float(data.get('bet', 0))
-    mode = data.get('mode', 'coin')
-    
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; bet = float(data.get('bet', 0)); mode = data.get('mode', 'coin')
     user = User.query.get(session['user_id'])
-    if not user or bet <= 0 or user.balance < bet:
-        return jsonify({'error': 'Invalid bet'}), 400
+    if not user or bet <= 0 or user.balance < bet: return jsonify({'error': 'Invalid bet'}), 400
         
     if mode == 'coin':
-        choice = data.get('choice')
-        result = random.choice(['heads', 'tails'])
-        win = (result == choice)
+        choice = data.get('choice'); result = random.choice(['heads', 'tails']); win = (result == choice)
         if win: user.balance += bet
         else: user.balance -= bet
         db.session.commit()
         return jsonify({'success': True, 'win': win, 'result': result, 'new_balance': user.balance})
-        
-    elif mode == 'wheel':
-        weights = [(0, 30), (0.5, 30), (1, 20), (2, 15), (5, 5)]
-        total = sum(w[1] for w in weights)
-        r = random.randint(1, total)
-        current = 0
-        mult = 1
-        for val, weight in weights:
-            current += weight
-            if r <= current:
-                mult = val
-                break
-        win_amount = bet * mult
-        user.balance -= bet
-        user.balance += win_amount
-        db.session.commit()
-        return jsonify({'success': True, 'mult': mult, 'new_balance': user.balance})
-
     return jsonify({'error': 'Invalid mode'}), 400
 
 @app.route('/api/buy', methods=['POST'])
 def api_buy():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    type = request.json.get('type')
-    user = User.query.get(session['user_id'])
-    
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    type = request.json.get('type'); user = User.query.get(session['user_id'])
     if type == 'multi':
         price = int(100 * (1.2 ** (user.click_power - 1)))
         if user.balance >= price:
-            user.balance -= price
-            user.click_power += 1
-            db.session.commit()
+            user.balance -= price; user.click_power += 1; db.session.commit()
             new_price = int(100 * (1.2 ** (user.click_power - 1)))
             return jsonify({'success': True, 'new_balance': user.balance, 'new_power': user.click_power, 'new_price': new_price})
     elif type == 'auto':
         price = int(250 * (1.2 ** user.auto_income))
         if user.balance >= price:
-            user.balance -= price
-            user.auto_income += 1
-            db.session.commit()
+            user.balance -= price; user.auto_income += 1; db.session.commit()
             new_price = int(250 * (1.2 ** user.auto_income))
             return jsonify({'success': True, 'new_balance': user.balance, 'new_income': user.auto_income, 'new_price': new_price})
     return jsonify({'error': 'No money'}), 400
 
 @app.route('/api/buy_custom', methods=['POST'])
 def api_buy_custom():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    user = User.query.get(session['user_id'])
-    
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; user = User.query.get(session['user_id'])
     if user.balance >= data['price']:
         existing = Inventory.query.filter_by(user_id=user.id, item_type=data['type'], item_name=data['name']).first()
-        if existing:
-            return jsonify({'error': 'У вас уже есть этот предмет'}), 400
-            
+        if existing: return jsonify({'error': 'У вас уже есть этот предмет'}), 400
         user.balance -= data['price']
         inv_item = Inventory(user_id=user.id, item_type=data['type'], item_name=data['name'], item_mult=data.get('mult', 0))
         db.session.add(inv_item)
-        
         if data['type'] == 'badge':
-            user.badge = data['name']
-            user.badge_color = '#00ffcc'
-            user.badge_expire = time.time() + 14 * 86400
-            
+            user.badge = data['name']; user.badge_color = '#00ffcc'; user.badge_expire = time.time() + 14 * 86400
         db.session.commit()
         return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
@@ -1277,163 +1357,98 @@ def api_inventory():
         is_equipped = False
         if i.item_type == 'skin' and user.skin == i.item_name: is_equipped = True
         if i.item_type == 'badge' and user.badge == i.item_name: is_equipped = True
-        
         res.append({'id': i.id, 'item_type': i.item_type, 'item_name': i.item_name, 'item_mult': i.item_mult, 'is_equipped': is_equipped})
     return jsonify({'items': res})
 
 @app.route('/api/equip', methods=['POST'])
 def api_equip():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    user = User.query.get(session['user_id'])
+    data = request.json; user = User.query.get(session['user_id'])
     item = Inventory.query.get(data['id'])
-    
     if not item or item.user_id != user.id: return jsonify({'error': 'Not found'}), 404
-    
     if item.item_type == 'skin':
-        user.skin = item.item_name
-        user.skin_mult = item.item_mult
+        user.skin = item.item_name; user.skin_mult = item.item_mult
     elif item.item_type == 'badge':
-        user.badge = item.item_name
-        user.badge_expire = time.time() + 14 * 86400
-        
-    db.session.commit()
-    return jsonify({'success': True})
+        user.badge = item.item_name; user.badge_expire = time.time() + 14 * 86400
+    db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/unequip', methods=['POST'])
 def api_unequip():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    user = User.query.get(session['user_id'])
+    data = request.json; user = User.query.get(session['user_id'])
     item = Inventory.query.get(data['id'])
-    
     if not item or item.user_id != user.id: return jsonify({'error': 'Not found'}), 404
-    
     if item.item_type == 'skin' and user.skin == item.item_name:
-        user.skin = ''
-        user.skin_mult = 1.0
+        user.skin = ''; user.skin_mult = 1.0
     elif item.item_type == 'badge' and user.badge == item.item_name:
-        user.badge = ''
-        user.badge_color = '#ffffff'
-        user.badge_expire = 0
-        
-    db.session.commit()
-    return jsonify({'success': True})
+        user.badge = ''; user.badge_color = '#ffffff'; user.badge_expire = 0
+    db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/mod/action', methods=['POST'])
 def api_mod_action():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
-    mod = User.query.get(session['user_id'])
-    data = request.json
-    action = data.get('action')
-    target_name = data.get('target')
-    duration = int(data.get('duration', 0))
-    reason = data.get('reason', 'Без причины')
-    
+    mod = User.query.get(session['user_id']); data = request.json
+    action = data.get('action'); target_name = data.get('target'); duration = int(data.get('duration', 0)); reason = data.get('reason', 'Без причины')
     target = User.query.filter_by(username=target_name).first()
     if not target: return jsonify({'error': 'Игрок не найден'}), 404
     if target.id == mod.id: return jsonify({'error': 'Себе нельзя'}), 400
     if target.mod_rank >= mod.mod_rank: return jsonify({'error': 'У вас недостаточно прав для этого игрока'}), 403
     
     if action == 'mute':
-        if mod.mod_rank == 1 and duration > 15:
-            return jsonify({'error': 'Младший модератор может мутить максимум на 15 минут'}), 403
-        target.mute_until = time.time() + (duration * 60)
-        db.session.commit()
+        if mod.mod_rank == 1 and duration > 15: return jsonify({'error': 'Младший модератор может мутить максимум на 15 минут'}), 403
+        target.mute_until = time.time() + (duration * 60); db.session.commit()
         return jsonify({'success': True, 'msg': f'Игрок {target_name} заглушен на {duration} мин.'})
-        
     elif action == 'ban':
-        if mod.mod_rank < 3:
-            return jsonify({'error': 'Банить могут только Администраторы'}), 403
-        target.is_banned = 1
-        target.ban_reason = reason
-        target.ban_until = time.time() + (duration * 60)
-        target.ban_duration = f"{duration}m"
-        db.session.commit()
-        return jsonify({'success': True, 'msg': f'Игрок {target_name} забанен на {duration} мин.'})
-        
+        if mod.mod_rank < 3: return jsonify({'error': 'Банить могут только Администраторы'}), 403
+        target.is_banned = 1; target.ban_reason = reason; target.ban_until = time.time() + (duration * 60); target.ban_duration = f"{duration}m"
+        db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target_name} забанен на {duration} мин.'})
     elif action == 'unmute':
-        target.mute_until = 0
-        db.session.commit()
-        return jsonify({'success': True, 'msg': f'Игрок {target_name} размучен'})
-        
+        target.mute_until = 0; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target_name} размучен'})
     elif action == 'unban':
-        if mod.mod_rank < 3:
-            return jsonify({'error': 'Разбанивать могут только Администраторы'}), 403
-        target.is_banned = 0
-        target.ban_until = 0
-        target.ban_reason = ""
-        db.session.commit()
-        return jsonify({'success': True, 'msg': f'Игрок {target_name} разбанен'})
-        
+        if mod.mod_rank < 3: return jsonify({'error': 'Разбанивать могут только Администраторы'}), 403
+        target.is_banned = 0; target.ban_until = 0; target.ban_reason = ""
+        db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target_name} разбанен'})
     return jsonify({'error': 'Неизвестное действие'}), 400
 
 @app.route('/api/top')
 def api_top():
     users = User.query.order_by(User.balance.desc()).limit(10).all()
-    return jsonify([{'username': u.username, 'balance': u.balance, 'color': u.color, 'badge': u.badge, 'badge_color': u.badge_color, 'is_banned': u.is_banned, 'mod_rank': u.mod_rank} for u in users])
+    return jsonify([{'username': u.username, 'balance': u.balance, 'dollars': u.dollars, 'color': u.color, 'badge': u.badge, 'badge_color': u.badge_color, 'is_banned': u.is_banned, 'mod_rank': u.mod_rank} for u in users])
 
 @app.route('/api/ban_info/<username>')
 def api_ban_info(username):
     user = User.query.filter_by(username=username, is_banned=1).first()
-    if user: 
-        return jsonify({'success': True, 'username': user.username, 'ban_reason': user.ban_reason, 'ban_msg': user.ban_msg, 'remaining': max(0, int(user.ban_until - time.time()))})
+    if user: return jsonify({'success': True, 'username': user.username, 'ban_reason': user.ban_reason, 'ban_msg': user.ban_msg, 'remaining': max(0, int(user.ban_until - time.time()))})
     return jsonify({'error': 'Not found'}), 404
 
 @app.route('/api/settings', methods=['POST'])
 def api_settings():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    user = User.query.get(session['user_id'])
-    setattr(user, data['key'], data['value'])
-    db.session.commit()
-    return jsonify({'success': True})
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; user = User.query.get(session['user_id'])
+    setattr(user, data['key'], data['value']); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/reset', methods=['POST'])
 def api_reset():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
-    user.balance = 0
-    user.click_power = 1
-    user.auto_income = 0
-    user.color = '#ffffff'
-    user.badge = ''
-    user.badge_color = '#ffffff'
-    user.skin = ''
-    user.skin_mult = 1.0
-    Inventory.query.filter_by(user_id=user.id).delete()
-    db.session.commit()
-    return jsonify({'success': True})
+    user.balance = 0; user.click_power = 1; user.auto_income = 0; user.color = '#ffffff'; user.badge = ''; user.badge_color = '#ffffff'; user.skin = ''; user.skin_mult = 1.0
+    Inventory.query.filter_by(user_id=user.id).delete(); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/transfer', methods=['POST'])
 def api_transfer():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    amount = data['amount']
-    receiver = data['receiver']
-    if amount <= 0: 
-        return jsonify({'error': 'Неверная сумма'}), 400
-    sender = User.query.get(session['user_id'])
-    target = User.query.filter_by(username=receiver).first()
-    if not target: 
-        return jsonify({'error': 'Игрок не найден'}), 404
-    if sender.username == receiver: 
-        return jsonify({'error': 'Себе нельзя'}), 400
-    if sender.balance < amount: 
-        return jsonify({'error': 'Мало денег'}), 400
-    sender.balance -= amount
-    target.balance += amount
-    db.session.add(Transfer(sender=sender.username, receiver=receiver, amount=amount, timestamp=time.time()))
-    db.session.commit()
-    return jsonify({'success': True})
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; amount = data['amount']; receiver = data['receiver']
+    if amount <= 0: return jsonify({'error': 'Неверная сумма'}), 400
+    sender = User.query.get(session['user_id']); target = User.query.filter_by(username=receiver).first()
+    if not target: return jsonify({'error': 'Игрок не найден'}), 404
+    if sender.username == receiver: return jsonify({'error': 'Себе нельзя'}), 400
+    if sender.balance < amount: return jsonify({'error': 'Мало денег'}), 400
+    sender.balance -= amount; target.balance += amount
+    db.session.add(Transfer(sender=sender.username, receiver=receiver, amount=amount, timestamp=time.time())); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/transfers/top')
 def api_transfers_top():
-    period = request.args.get('period', 'all')
-    now = time.time()
+    period = request.args.get('period', 'all'); now = time.time()
     start = now - 86400 if period == 'day' else (now - 2592000 if period == 'month' else 0)
     from sqlalchemy import func
     rows = db.session.query(Transfer.sender, func.sum(Transfer.amount).label('total')).filter(Transfer.timestamp >= start).group_by(Transfer.sender).order_by(func.sum(Transfer.amount).desc()).limit(10).all()
@@ -1441,8 +1456,7 @@ def api_transfers_top():
 
 @app.route('/api/transfers/my')
 def api_transfers_my():
-    if 'user_id' not in session: 
-        return jsonify([])
+    if 'user_id' not in session: return jsonify([])
     user = User.query.get(session['user_id'])
     rows = Transfer.query.filter_by(sender=user.username).order_by(Transfer.timestamp.desc()).limit(20).all()
     return jsonify([{'receiver': r.receiver, 'amount': r.amount, 'timestamp': r.timestamp} for r in rows])
@@ -1453,201 +1467,108 @@ def api_chat_get():
     res = []
     for m in reversed(msgs):
         u = User.query.filter_by(username=m.username).first()
-        res.append({
-            'username': m.username, 
-            'text': m.text, 
-            'timestamp': m.timestamp, 
-            'reply_user': m.reply_user, 
-            'reply_text': m.reply_text, 
-            'color': u.color if u else '#fff', 
-            'badge': u.badge if u else '', 
-            'badge_color': u.badge_color if u else '#fff',
-            'is_red': m.is_red
-        })
+        res.append({'username': m.username, 'text': m.text, 'timestamp': m.timestamp, 'reply_user': m.reply_user, 'reply_text': m.reply_text, 'color': u.color if u else '#fff', 'badge': u.badge if u else '', 'badge_color': u.badge_color if u else '#fff', 'is_red': m.is_red})
     return jsonify(res)
 
 @app.route('/api/chat/send', methods=['POST'])
 def api_chat_send():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    data = request.json
-    text = data.get('text', '').strip()
-    if not text: 
-        return jsonify({'error': 'Пустое'}), 400
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json; text = data.get('text', '').strip()
+    if not text: return jsonify({'error': 'Пустое'}), 400
     user = User.query.get(session['user_id'])
-    if user.mute_until > time.time(): 
-        return jsonify({'error': 'Вы заглушены!'}), 403
-    
+    if user.mute_until > time.time(): return jsonify({'error': 'Вы заглушены!'}), 403
     is_red = data.get('is_red', False) and user.can_write_red
-    
     msg = ChatMessage(username=user.username, text=text[:100], timestamp=time.time(), reply_user=data.get('reply_user', ''), reply_text=data.get('reply_text', '')[:50], is_red=is_red)
-    db.session.add(msg)
-    db.session.commit()
-    return jsonify({'success': True})
+    db.session.add(msg); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/promo/redeem', methods=['POST'])
 def api_promo_redeem():
-    if 'user_id' not in session: 
-        return jsonify({'error': 'Auth'}), 401
-    code = request.json.get('code', '').strip()
-    promo = Promocode.query.filter_by(code=code).first()
-    if not promo or promo.uses_left <= 0: 
-        return jsonify({'error': 'Недействительный код'}), 400
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    code = request.json.get('code', '').strip(); promo = Promocode.query.filter_by(code=code).first()
+    if not promo or promo.uses_left <= 0: return jsonify({'error': 'Недействительный код'}), 400
     user = User.query.get(session['user_id'])
-    if promo.type == 'money': 
-        user.balance += float(promo.value)
-    elif promo.type == 'coins': 
-        user.mog_coins += float(promo.value)
-    elif promo.type == 'badge': 
-        user.badge = promo.value
-        user.badge_expire = time.time() + 14 * 86400
-    elif promo.type == 'color': 
-        user.color = promo.value
-    promo.uses_left -= 1
-    db.session.commit()
-    return jsonify({'success': True})
+    if promo.type == 'money': user.balance += float(promo.value)
+    elif promo.type == 'coins': user.mog_coins += float(promo.value)
+    elif promo.type == 'badge': user.badge = promo.value; user.badge_expire = time.time() + 14 * 86400
+    elif promo.type == 'color': user.color = promo.value
+    promo.uses_left -= 1; db.session.commit(); return jsonify({'success': True})
 
 ADMIN_SECRET_TOKEN = "MOG_SECRET_2026"
 
 @app.route('/api/admin/command', methods=['POST'])
 def api_admin_command():
     data = request.json
-    if data.get('token') != ADMIN_SECRET_TOKEN: 
-        return jsonify({'error': 'Доступ запрещен'}), 403
+    if data.get('token') != ADMIN_SECRET_TOKEN: return jsonify({'error': 'Доступ запрещен'}), 403
     cmd_str = data.get('command', '').strip()
-    if not cmd_str: 
-        return jsonify({'error': 'Пустая команда'})
-    
-    parts = cmd_str.split()
-    action = parts[0]
+    if not cmd_str: return jsonify({'error': 'Пустая команда'})
+    parts = cmd_str.split(); action = parts[0]
     
     try:
         if action == '/createuser' and len(parts) >= 3:
-            if User.query.filter_by(username=parts[1]).first(): 
-                return jsonify({'error': 'Ник занят'})
+            if User.query.filter_by(username=parts[1]).first(): return jsonify({'error': 'Ник занят'})
             new_u = User(username=parts[1], password=generate_password_hash(parts[2]))
-            db.session.add(new_u)
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Аккаунт {parts[1]} создан'})
-            
+            db.session.add(new_u); db.session.commit(); return jsonify({'success': True, 'msg': f'Аккаунт {parts[1]} создан'})
         elif action == '/promo' and len(parts) >= 5:
             p_code, p_type, p_val, p_uses = parts[1], parts[2], parts[3], int(parts[4])
-            if Promocode.query.get(p_code): 
-                return jsonify({'error': 'Промокод уже есть'})
-            db.session.add(Promocode(code=p_code, type=p_type, value=p_val, uses_left=p_uses))
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Промокод {p_code} создан'})
+            if Promocode.query.get(p_code): return jsonify({'error': 'Промокод уже есть'})
+            db.session.add(Promocode(code=p_code, type=p_type, value=p_val, uses_left=p_uses)); db.session.commit(); return jsonify({'success': True, 'msg': f'Промокод {p_code} создан'})
 
-        target = parts[1] if len(parts) > 1 else ""
-        user = User.query.filter_by(username=target).first()
-        if not user: 
-            return jsonify({'error': f'Игрок {target} не найден'})
+        target = parts[1] if len(parts) > 1 else ""; user = User.query.filter_by(username=target).first()
+        if not user: return jsonify({'error': f'Игрок {target} не найден'})
             
         if action == '/give' and len(parts) >= 3:
             try: amount = float(parts[2])
             except ValueError: return jsonify({'error': 'Сумма должна быть числом'})
-            user.balance += amount
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
-            
+            user.balance += amount; db.session.commit(); return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
+        elif action == '/infinite' and len(parts) >= 2:
+            user.balance += 999999999999; db.session.commit(); return jsonify({'success': True, 'msg': f'Выдано бесконечное бабло!'})
         elif action == '/givecoins' and len(parts) >= 3:
             try: amount = float(parts[2])
             except ValueError: return jsonify({'error': 'Сумма должна быть числом'})
-            user.mog_coins += amount
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Выдано {amount} MOG Coins'})
-            
+            user.mog_coins += amount; db.session.commit(); return jsonify({'success': True, 'msg': f'Выдано {amount} MOG Coins'})
         elif action == '/givebadge' and len(parts) >= 3: 
-            user.badge = parts[2]
-            user.badge_expire = time.time() + 14 * 86400
+            user.badge = parts[2]; user.badge_expire = time.time() + 14 * 86400
             db.session.add(Inventory(user_id=user.id, item_type='badge', item_name=parts[2]))
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Бейдж выдан'})
-            
+            db.session.commit(); return jsonify({'success': True, 'msg': f'Бейдж выдан'})
         elif action == '/setcolor' and len(parts) >= 3: 
-            user.color = parts[2]
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Цвет изменен'})
-            
+            user.color = parts[2]; db.session.commit(); return jsonify({'success': True, 'msg': f'Цвет изменен'})
         elif action == '/setbadgecolor' and len(parts) >= 3: 
-            user.badge_color = parts[2]
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
-            
+            user.badge_color = parts[2]; db.session.commit(); return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
         elif action == '/givered': 
-            user.can_write_red = True
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Доступ к красному чату выдан'})
-            
+            user.can_write_red = True; db.session.commit(); return jsonify({'success': True, 'msg': f'Доступ к красному чату выдан'})
         elif action == '/removered': 
-            user.can_write_red = False
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Доступ к красному чату забран'})
-
+            user.can_write_red = False; db.session.commit(); return jsonify({'success': True, 'msg': f'Доступ к красному чату забран'})
         elif action == '/giveskin' and len(parts) >= 4:
-            skin_name = parts[2]
-            skin_mult = float(parts[3])
-            user.skin = skin_name
-            user.skin_mult = skin_mult
+            skin_name = parts[2]; skin_mult = float(parts[3])
+            user.skin = skin_name; user.skin_mult = skin_mult
             db.session.add(Inventory(user_id=user.id, item_type='skin', item_name=skin_name, item_mult=skin_mult))
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Скин {skin_name} (x{skin_mult}) выдан'})
-            
+            db.session.commit(); return jsonify({'success': True, 'msg': f'Скин {skin_name} (x{skin_mult}) выдан'})
         elif action == '/setmod' and len(parts) >= 3:
-            rank = int(parts[2])
-            user.mod_rank = rank
-            db.session.commit()
+            rank = int(parts[2]); user.mod_rank = rank; db.session.commit()
             return jsonify({'success': True, 'msg': f'Игроку {target} выдан мод-ранг {rank}'})
-            
         elif action == '/ban' and len(parts) >= 3:
-            duration = parts[2]
-            reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"
-            sec = 60
+            duration = parts[2]; reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"; sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
             elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
             elif 'd' in duration: sec = int(duration.replace('d','')) * 86400
-            user.is_banned = 1
-            user.ban_reason = reason
-            user.ban_until = time.time() + sec
-            user.ban_duration = duration
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
-            
+            user.is_banned = 1; user.ban_reason = reason; user.ban_until = time.time() + sec; user.ban_duration = duration
+            db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target} забанен на {duration}'})
         elif action == '/mute' and len(parts) >= 3:
-            duration = parts[2]
-            sec = 60
+            duration = parts[2]; sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
             elif 'h' in duration: sec = int(duration.replace('h','')) * 3600
-            user.mute_until = time.time() + sec
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
-            
+            user.mute_until = time.time() + sec; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
         elif action == '/unban':
-            user.is_banned = 0
-            user.ban_until = 0
-            user.ban_reason = ""
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Игрок разбанен'})
-            
+            user.is_banned = 0; user.ban_until = 0; user.ban_reason = ""; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок разбанен'})
         elif action == '/unmute':
-            user.mute_until = 0
-            db.session.commit()
-            return jsonify({'success': True, 'msg': f'Игрок размучен'})
-            
+            user.mute_until = 0; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок размучен'})
         elif action == '/reset': 
-            user.balance = 0
-            user.click_power = 1
-            user.auto_income = 0
-            user.skin = ''
-            user.skin_mult = 1.0
-            Inventory.query.filter_by(user_id=user.id).delete()
-            db.session.commit()
+            user.balance = 0; user.click_power = 1; user.auto_income = 0; user.skin = ''; user.skin_mult = 1.0
+            Inventory.query.filter_by(user_id=user.id).delete(); db.session.commit()
             return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
-            
         return jsonify({'error': 'Неизвестная команда'})
     except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)})
+        db.session.rollback(); return jsonify({'error': str(e)})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
