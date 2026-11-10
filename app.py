@@ -4,6 +4,7 @@ import re
 import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
@@ -52,6 +53,7 @@ class User(db.Model):
     ban_duration = db.Column(db.String(50), default='')
     mute_until = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.Float, default=time.time)
+    can_write_red = db.Column(db.Boolean, default=False)
 
 class Transfer(db.Model):
     __tablename__ = 'transfers'
@@ -69,6 +71,7 @@ class ChatMessage(db.Model):
     timestamp = db.Column(db.Float)
     reply_user = db.Column(db.String(80), default='')
     reply_text = db.Column(db.String(100), default='')
+    is_red = db.Column(db.Boolean, default=False)
 
 class Promocode(db.Model):
     __tablename__ = 'promocodes'
@@ -79,6 +82,14 @@ class Promocode(db.Model):
 
 with app.app_context():
     db.create_all()
+    # Безопасное добавление новых колонок
+    try:
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_write_red BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_red BOOLEAN DEFAULT FALSE;"))
+            conn.commit()
+    except Exception as e:
+        print("БД уже обновлена или ошибка:", e)
 
 HTML_CODE = """
 <!DOCTYPE html>
@@ -175,13 +186,20 @@ HTML_CODE = """
         #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
         #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
         .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; transition: transform 0.2s;}
+        .chat-msg.red-text-msg { color: #ff4444; border-left-color: #ff4444; }
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
         #chat-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
         #chat-reply-bar { display: none; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 5px; font-size: 12px; text-align: left; border-left: 3px solid var(--gold); position: relative;}
         .close-reply { position: absolute; right: 5px; top: 5px; cursor: pointer; color: #ff4444; font-weight: bold;}
-        .chat-input-row { display: flex; gap: 10px; width: 100%; }
+        .chat-input-row { display: flex; gap: 10px; width: 100%; align-items: center;}
         #chat-input { flex: 1; margin: 0; padding: 12px; border-radius: 20px; }
         #chat-send { width: 50px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
+        
+        /* Стили для казино */
+        .casino-box { background: rgba(0,0,0,0.4); border: 2px solid var(--gold); border-radius: 15px; padding: 20px; margin-bottom: 20px;}
+        .casino-buttons { display: flex; gap: 10px; margin-top: 15px;}
+        .casino-buttons button { flex: 1; font-size: 18px; padding: 15px;}
+        #casino-result { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: center; height: 30px;}
     </style>
 </head>
 <body class="theme-{{ user.theme if user else 'dark' }}" style="zoom: {{ user.zoom if user else 100 }}%; font-family: '{{ user.font_family if user else 'Montserrat' }}', sans-serif;">
@@ -190,12 +208,12 @@ HTML_CODE = """
     {% if user and user.is_banned %}
         <div class="modal active" style="display:flex;">
             <div class="modal-content" style="border-color: #ff4444;">
-                <div class="modal-title" style="color: #ff4444;">!ВЫ ЗАБАНЕНЫ!</div>
-                <div class="info-label">ПРИЧИНА:</div><div class="info-value" style="color: #ff4444;">{{ user.ban_reason }}</div>
-                <div class="info-label">СООБЩЕНИЕ:</div><div class="info-value" style="color: #aaa; font-size: 13px;">{{ user.ban_msg }}</div>
-                <div class="info-label">ЗАБАНЕН НА:</div><div class="info-value">{{ user.ban_duration }}</div>
-                <div class="info-label">ОСТАЛОСЬ:</div><div class="info-value" id="ban-timer" style="color: #ff4444; font-weight: bold; font-size: 18px;"></div>
-                <a href="/logout" class="btn-main btn-danger" style="display: block; text-decoration: none; margin-top: 20px;">Выйти</a>
+                <div class="modal-title" style="color: #ff4444;" data-i18n="banned_title">!ВЫ ЗАБАНЕНЫ!</div>
+                <div class="info-label" data-i18n="reason">ПРИЧИНА:</div><div class="info-value" style="color: #ff4444;">{{ user.ban_reason }}</div>
+                <div class="info-label" data-i18n="message">СООБЩЕНИЕ:</div><div class="info-value" style="color: #aaa; font-size: 13px;">{{ user.ban_msg }}</div>
+                <div class="info-label" data-i18n="banned_for">ЗАБАНЕН НА:</div><div class="info-value">{{ user.ban_duration }}</div>
+                <div class="info-label" data-i18n="time_left">ОСТАЛОСЬ:</div><div class="info-value" id="ban-timer" style="color: #ff4444; font-weight: bold; font-size: 18px;"></div>
+                <a href="/logout" class="btn-main btn-danger" style="display: block; text-decoration: none; margin-top: 20px;" data-i18n="logout">Выйти</a>
             </div>
         </div>
         <script>
@@ -204,8 +222,8 @@ HTML_CODE = """
                 if(remaining <= 0) { window.location.reload(); return; }
                 let d = Math.floor(remaining / 86400); let h = Math.floor((remaining % 86400) / 3600);
                 let m = Math.floor((remaining % 3600) / 60); let s = remaining % 60;
-                let text = ""; if(d > 0) text += d + "д "; if(h > 0) text += h + "ч ";
-                text += m + "м " + s + "с"; document.getElementById('ban-timer').innerText = text;
+                let text = ""; if(d > 0) text += d + "d "; if(h > 0) text += h + "h ";
+                text += m + "m " + s + "s"; document.getElementById('ban-timer').innerText = text;
                 remaining--; setTimeout(updateTimer, 1000);
             }
             updateTimer();
@@ -216,18 +234,18 @@ HTML_CODE = """
             <div class="glass-card">
                 <h1 style="color: var(--neon); text-shadow: 0 0 10px var(--neon);">MOGCLICKER</h1>
                 <div class="auth-tabs">
-                    <button class="auth-tab active" onclick="switchAuth('login')">Вход</button>
-                    <button class="auth-tab" onclick="switchAuth('reg')">Регистрация</button>
+                    <button class="auth-tab active" onclick="switchAuth('login')" data-i18n="login">Вход</button>
+                    <button class="auth-tab" onclick="switchAuth('reg')" data-i18n="register">Регистрация</button>
                 </div>
                 <div id="form-login" class="auth-form active">
-                    <input type="text" id="l-username" placeholder="Логин">
-                    <input type="password" id="l-password" placeholder="Пароль">
-                    <button class="btn-main" onclick="doAuth('login')">Войти</button>
+                    <input type="text" id="l-username" placeholder="Логин" data-i18n-placeholder="username">
+                    <input type="password" id="l-password" placeholder="Пароль" data-i18n-placeholder="password">
+                    <button class="btn-main" onclick="doAuth('login')" data-i18n="btn_login">Войти</button>
                 </div>
                 <div id="form-reg" class="auth-form">
-                    <input type="text" id="r-username" placeholder="Логин (только англ.)">
-                    <input type="password" id="r-password" placeholder="Пароль">
-                    <button class="btn-main btn-gold" onclick="doAuth('register')">Создать аккаунт</button>
+                    <input type="text" id="r-username" placeholder="Логин (только англ.)" data-i18n-placeholder="username_eng">
+                    <input type="password" id="r-password" placeholder="Пароль" data-i18n-placeholder="password">
+                    <button class="btn-main btn-gold" onclick="doAuth('register')" data-i18n="btn_register">Создать аккаунт</button>
                 </div>
             </div>
         </div>
@@ -235,80 +253,100 @@ HTML_CODE = """
     {% else %}
         <h1>MOGCLICKER</h1>
         <div style="font-size: 16px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap;">
-            <span>Привет</span>, 
+            <span data-i18n="hello">Привет</span>, 
             <span id="current-username" class="{% if user.color == 'rainbow' %}rainbow-text{% endif %}" style="color: {{ user.color if user.color != 'rainbow' else '' }}; font-weight: bold;">{{ user.username }}</span>
             {% if user.badge %}
-                <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}" onclick="showToast('Этот бейдж коллекционный!', 'success')">{{ user.badge }}</span>
+                <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
             {% endif %}
             | <span style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
-            | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
+            | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;" data-i18n="logout">Выйти</a>
         </div>
 
         <div class="nav" style="display: flex; justify-content: center; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; width: 100%; max-width: 400px;">
-            <button onclick="switchTab('game')" id="tab-game" class="nav-btn active">Игра</button>
-            <button onclick="switchTab('shop')" id="tab-shop" class="nav-btn">Магазин</button>
-            <button onclick="switchTab('transfer')" id="tab-transfer" class="nav-btn">Переводы</button>
-            <button onclick="switchTab('top')" id="tab-top" class="nav-btn">Топ</button>
-            <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn">Настройки</button>
+            <button onclick="switchTab('game')" id="tab-game" class="nav-btn active" data-i18n="tab_game">Игра</button>
+            <button onclick="switchTab('casino')" id="tab-casino" class="nav-btn" data-i18n="tab_casino">Казино</button>
+            <button onclick="switchTab('shop')" id="tab-shop" class="nav-btn" data-i18n="tab_shop">Магазин</button>
+            <button onclick="switchTab('transfer')" id="tab-transfer" class="nav-btn" data-i18n="tab_transfer">Переводы</button>
+            <button onclick="switchTab('top')" id="tab-top" class="nav-btn" data-i18n="tab_top">Топ</button>
+            <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn" data-i18n="tab_settings">Настройки</button>
         </div>
 
         <div id="view-game" class="view active">
             <div id="score">{{ user.balance|int }} ₽</div>
             <div id="coin" onclick="clickCoin(event)">₽</div>
-            <div>Сила: <span id="ui-click-power">{{ user.click_power }}</span> | Доход: <span id="ui-auto-income">{{ user.auto_income }}</span>/с</div>
+            <div><span data-i18n="power">Сила</span>: <span id="ui-click-power">{{ user.click_power }}</span> | <span data-i18n="income">Доход</span>: <span id="ui-auto-income">{{ user.auto_income }}</span>/с</div>
+        </div>
+
+        <div id="view-casino" class="view">
+            <h3 data-i18n="casino_title">Казино "Орёл и Решка"</h3>
+            <div class="casino-box">
+                <p data-i18n="casino_desc">Введи ставку и выбери сторону. Угадаешь — забираешь x2!</p>
+                <input type="number" id="casino-bet" placeholder="Сумма ставки" data-i18n-placeholder="bet_amount">
+                <div class="casino-buttons">
+                    <button class="btn-main btn-gold" onclick="playCasino('heads')" data-i18n="heads">Орёл 🦅</button>
+                    <button class="btn-main btn-gold" onclick="playCasino('tails')" data-i18n="tails">Решка 🪙</button>
+                </div>
+                <div id="casino-result"></div>
+            </div>
         </div>
 
         <div id="view-shop" class="view">
-            <h3>Улучшения</h3>
-            <div class="shop-item"><div>Мультиклик (x2)</div><button onclick="buyUpgrade('multi')">{{ multi_price }} ₽</button></div>
-            <div class="shop-item"><div>Автокликер (+1/с)</div><button onclick="buyUpgrade('auto')">{{ auto_price }} ₽</button></div>
+            <h3 data-i18n="upgrades">Улучшения</h3>
+            <div class="shop-item"><div data-i18n="multi">Мультиклик (x2)</div><button onclick="buyUpgrade('multi')">{{ multi_price }} ₽</button></div>
+            <div class="shop-item"><div data-i18n="auto">Автокликер (+1/с)</div><button onclick="buyUpgrade('auto')">{{ auto_price }} ₽</button></div>
             
-            <h3>Кастомизация</h3>
-            <div class="shop-item"><div>Бейдж "MOG" <br><small style="color: #888; font-size: 10px;">(14 дней)</small></div><button onclick="buyCustom('badge', 'MOG', 5000)">5,000 ₽</button></div>
+            <h3 data-i18n="custom">Кастомизация</h3>
+            <div class="shop-item"><div data-i18n="badge_mog">Бейдж "MOG" <br><small style="color: #888; font-size: 10px;">(14 дней)</small></div><button onclick="buyCustom('badge', 'MOG', 5000)">5,000 ₽</button></div>
 
-            <h3>Донат-валюта (💎)</h3>
-            <div class="shop-item" style="opacity: 0.7;"><div>100 💎<br><small style="color: #ff4444;">(Скоро)</small></div><button class="btn-disabled">Купить</button></div>
+            <h3 data-i18n="donate_coin">Донат-валюта (💎)</h3>
+            <div class="shop-item" style="opacity: 0.7;"><div>100 💎<br><small style="color: #ff4444;" data-i18n="soon">(Скоро)</small></div><button class="btn-disabled" data-i18n="buy">Купить</button></div>
         </div>
 
         <div id="view-transfer" class="view">
-            <h3>Переводы</h3>
-            <input type="text" id="tr-nick" placeholder="Ник получателя">
-            <input type="number" id="tr-amount" placeholder="Сумма">
-            <button class="btn-main" onclick="doTransfer()">Перевести</button>
+            <h3 data-i18n="transfers">Переводы</h3>
+            <input type="text" id="tr-nick" placeholder="Ник получателя" data-i18n-placeholder="receiver_nick">
+            <input type="number" id="tr-amount" placeholder="Сумма" data-i18n-placeholder="amount">
+            <button class="btn-main" onclick="doTransfer()" data-i18n="send">Перевести</button>
             <div style="display:flex; gap:5px; margin-bottom: 10px;">
-                <button class="nav-btn active" onclick="loadTransfers('day', this)">День</button>
-                <button class="nav-btn" onclick="loadTransfers('month', this)">Месяц</button>
-                <button class="nav-btn" onclick="loadTransfers('all', this)">Всегда</button>
+                <button class="nav-btn active" onclick="loadTransfers('day', this)" data-i18n="day">День</button>
+                <button class="nav-btn" onclick="loadTransfers('month', this)" data-i18n="month">Месяц</button>
+                <button class="nav-btn" onclick="loadTransfers('all', this)" data-i18n="all">Всегда</button>
             </div>
-            <h4 style="text-align:left;">Топ переводчиков:</h4><div id="transfer-top-list" style="text-align:left; font-size:14px; margin-bottom:20px; max-height:150px; overflow-y:auto;"></div>
-            <h4 style="text-align:left;">Ваши переводы:</h4><div id="my-transfer-list" style="text-align:left; font-size:14px; max-height:150px; overflow-y:auto;"></div>
+            <h4 style="text-align:left;" data-i18n="top_senders">Топ переводчиков:</h4><div id="transfer-top-list" style="text-align:left; font-size:14px; margin-bottom:20px; max-height:150px; overflow-y:auto;"></div>
+            <h4 style="text-align:left;" data-i18n="my_transfers">Ваши переводы:</h4><div id="my-transfer-list" style="text-align:left; font-size:14px; max-height:150px; overflow-y:auto;"></div>
         </div>
 
-        <div id="view-top" class="view"><h3>Топ игроков</h3><div id="top-list">Загрузка...</div></div>
+        <div id="view-top" class="view"><h3 data-i18n="top_players">Топ игроков</h3><div id="top-list" data-i18n="loading">Загрузка...</div></div>
 
         <div id="view-settings" class="view">
-            <h3>Настройки</h3>
-            <div class="setting-item" onclick="openModal('lang-modal')"><span>Язык</span><span id="display-lang">Русский</span></div>
-            <div class="setting-item" onclick="openModal('theme-modal')"><span>Тема</span><span id="display-theme">Тёмная</span></div>
-            <div class="setting-item" onclick="openModal('font-modal')"><span>Шрифт</span><span id="display-font">{{ user.font_family }}</span></div>
+            <h3 data-i18n="settings">Настройки</h3>
+            <div class="setting-item" onclick="openModal('lang-modal')"><span data-i18n="language">Язык</span><span id="display-lang">Русский</span></div>
+            <div class="setting-item" onclick="openModal('theme-modal')"><span data-i18n="theme">Тема</span><span id="display-theme">Тёмная</span></div>
+            <div class="setting-item" onclick="openModal('font-modal')"><span data-i18n="font">Шрифт</span><span id="display-font">{{ user.font_family }}</span></div>
             <div class="setting-item" style="flex-direction: column; align-items: flex-start;">
-                <div style="display:flex; justify-content:space-between; width:100%;"><span>Масштаб UI</span><span id="zoom-val">{{ user.zoom }}%</span></div>
+                <div style="display:flex; justify-content:space-between; width:100%;"><span data-i18n="zoom">Масштаб UI</span><span id="zoom-val">{{ user.zoom }}%</span></div>
                 <input type="range" id="set-zoom" min="50" max="150" step="10" value="{{ user.zoom }}" oninput="updateZoom(this.value)">
             </div>
-            <h4 style="text-align:left; margin-top:20px;">Промокод</h4>
-            <div style="display:flex; gap:10px;"><input type="text" id="promo-input" placeholder="Введите код..." style="margin-bottom:0;"><button class="btn-main" onclick="redeemPromo()" style="width:100px; margin-bottom:0;">Ввод</button></div>
+            <h4 style="text-align:left; margin-top:20px;" data-i18n="promo_code">Промокод</h4>
+            <div style="display:flex; gap:10px;"><input type="text" id="promo-input" placeholder="Введите код..." data-i18n-placeholder="enter_code"><button class="btn-main" onclick="redeemPromo()" style="width:100px; margin-bottom:0;" data-i18n="enter">Ввод</button></div>
             <div class="setting-item" style="background: rgba(255,0,0,0.1); border-color: #ff4444; flex-direction: column; margin-top:20px;">
-                <p style="font-size: 12px; margin-bottom: 10px;">Опасная зона!</p><button class="btn-main btn-danger" onclick="resetProgress()" style="width:100%;">Сбросить прогресс</button>
+                <p style="font-size: 12px; margin-bottom: 10px;" data-i18n="danger_zone">Опасная зона!</p><button class="btn-main btn-danger" onclick="resetProgress()" style="width:100%;" data-i18n="reset_progress">Сбросить прогресс</button>
             </div>
         </div>
 
         <div id="chat-container">
             <div id="chat-messages"></div>
-            <div id="chat-mute-status" style="display:none;">Вы заглушены на <span id="mute-timer">0с</span></div>
+            <div id="chat-mute-status" style="display:none;" data-i18n="muted">Вы заглушены</div>
             <div id="chat-input-area">
                 <div id="chat-reply-bar"><span id="reply-text-preview" style="color:var(--gold); font-weight:bold;"></span><br><span id="reply-message-preview" style="color:#aaa; font-size:11px;"></span><span class="close-reply" onclick="cancelReply()">×</span></div>
                 <div class="chat-input-row">
-                    <input type="text" id="chat-input" placeholder="Сообщение в чат..." onkeypress="handleChatEnter(event)">
+                    <input type="text" id="chat-input" placeholder="Сообщение в чат..." onkeypress="handleChatEnter(event)" data-i18n-placeholder="chat_placeholder">
+                    {% if user.can_write_red %}
+                    <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:#ff4444;" title="Красный текст">
+                        <input type="checkbox" id="red-text-toggle" style="width:15px; height:15px; margin:0;">
+                        🔴
+                    </label>
+                    {% endif %}
                     <button id="chat-send" class="btn-main" onclick="sendChat()" style="padding:0;">➤</button>
                 </div>
             </div>
@@ -318,33 +356,59 @@ HTML_CODE = """
     <div class="modal" id="profile-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
-            <div class="modal-title">Профиль игрока</div>
-            <div class="info-label">НИК:</div>
-            <div class="info-value" id="p-nick"></div>
-            <div class="info-label">БАЛАНС:</div>
-            <div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
-            <div class="info-label">ДОНАТ-ВАЛЮТА:</div>
-            <div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
-            <div class="info-label">ДАТА РЕГИСТРАЦИИ:</div>
-            <div class="info-value" id="p-date"></div>
+            <div class="modal-title" data-i18n="profile">Профиль игрока</div>
+            <div class="info-label" data-i18n="nick">НИК:</div><div class="info-value" id="p-nick"></div>
+            <div class="info-label" data-i18n="balance">БАЛАНС:</div><div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
+            <div class="info-label" data-i18n="donate_coin">ДОНАТ-ВАЛЮТА:</div><div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
+            <div class="info-label" data-i18n="reg_date">ДАТА РЕГИСТРАЦИИ:</div><div class="info-value" id="p-date"></div>
         </div>
     </div>
 
-    <div class="modal" id="lang-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('lang-modal')">×</span><div class="modal-title">Язык</div><div class="custom-option" onclick="changeSetting('lang', 'ru')">Русский</div><div class="custom-option" onclick="changeSetting('lang', 'en')">English</div></div></div>
-    <div class="modal" id="theme-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('theme-modal')">×</span><div class="modal-title">Тема</div><div class="custom-option" onclick="changeSetting('theme', 'dark')">Тёмная</div><div class="custom-option" onclick="changeSetting('theme', 'light')">Светлая</div><div class="custom-option" onclick="changeSetting('theme', 'neon')">Неон</div><div class="custom-option" onclick="changeSetting('theme', 'cyber')">Киберпанк</div><div class="custom-option" onclick="changeSetting('theme', 'ocean')">Океан</div><div class="custom-option" onclick="changeSetting('theme', 'retro')">Ретро</div></div></div>
-    <div class="modal" id="font-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('font-modal')">×</span><div class="modal-title">Шрифт</div><div class="custom-option" onclick="changeSetting('font_family', 'Montserrat')" style="font-family:'Montserrat'">Montserrat</div><div class="custom-option" onclick="changeSetting('font_family', 'Play')" style="font-family:'Play'">Play</div><div class="custom-option" onclick="changeSetting('font_family', 'Russo One')" style="font-family:'Russo One'">Russo One</div><div class="custom-option" onclick="changeSetting('font_family', 'Comic Neue')" style="font-family:'Comic Neue'">Comic Neue</div></div></div>
-    <div class="modal" id="other-ban-modal"><div class="modal-content" style="border-color: #ff4444;"><span class="close-btn" onclick="closeOtherBan()">×</span><div class="modal-title" style="color:#ff4444;">ЗАБАНЕН</div><div class="info-label">НИК:</div><div class="info-value" id="other-ban-nick"></div><div class="info-label">ПРИЧИНА:</div><div class="info-value" id="other-ban-reason" style="color:#ff4444;"></div><div class="info-label">ДО:</div><div class="info-value" id="other-ban-until" style="color:#ff4444; font-weight:bold;"></div></div></div>
+    <div class="modal" id="lang-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('lang-modal')">×</span><div class="modal-title" data-i18n="language">Язык</div><div class="custom-option" onclick="changeSetting('lang', 'ru')">Русский</div><div class="custom-option" onclick="changeSetting('lang', 'en')">English</div></div></div>
+    <div class="modal" id="theme-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('theme-modal')">×</span><div class="modal-title" data-i18n="theme">Тема</div><div class="custom-option" onclick="changeSetting('theme', 'dark')" data-i18n="theme_dark">Тёмная</div><div class="custom-option" onclick="changeSetting('theme', 'light')" data-i18n="theme_light">Светлая</div><div class="custom-option" onclick="changeSetting('theme', 'neon')" data-i18n="theme_neon">Неон</div><div class="custom-option" onclick="changeSetting('theme', 'cyber')" data-i18n="theme_cyber">Киберпанк</div><div class="custom-option" onclick="changeSetting('theme', 'ocean')" data-i18n="theme_ocean">Океан</div><div class="custom-option" onclick="changeSetting('theme', 'retro')" data-i18n="theme_retro">Ретро</div></div></div>
+    <div class="modal" id="font-modal"><div class="modal-content"><span class="close-btn" onclick="closeModal('font-modal')">×</span><div class="modal-title" data-i18n="font">Шрифт</div><div class="custom-option" onclick="changeSetting('font_family', 'Montserrat')" style="font-family:'Montserrat'">Montserrat</div><div class="custom-option" onclick="changeSetting('font_family', 'Play')" style="font-family:'Play'">Play</div><div class="custom-option" onclick="changeSetting('font_family', 'Russo One')" style="font-family:'Russo One'">Russo One</div><div class="custom-option" onclick="changeSetting('font_family', 'Comic Neue')" style="font-family:'Comic Neue'">Comic Neue</div></div></div>
+    <div class="modal" id="other-ban-modal"><div class="modal-content" style="border-color: #ff4444;"><span class="close-btn" onclick="closeOtherBan()">×</span><div class="modal-title" style="color:#ff4444;" data-i18n="banned_title">ЗАБАНЕН</div><div class="info-label" data-i18n="nick">НИК:</div><div class="info-value" id="other-ban-nick"></div><div class="info-label" data-i18n="reason">ПРИЧИНА:</div><div class="info-value" id="other-ban-reason" style="color:#ff4444;"></div><div class="info-label" data-i18n="banned_for">ДО:</div><div class="info-value" id="other-ban-until" style="color:#ff4444; font-weight:bold;"></div></div></div>
 
     <script>
-        const isLoggedIn = {{ 'true' if user and not user.is_banned else 'false' }};
-        let currentLang = "{{ user.lang if user else 'ru' }}";
-        let currentTheme = "{{ user.theme if user else 'dark' }}";
-        let currentZoom = parseInt("{{ user.zoom if user else 100 }}");
-        
+        const i18n = {
+            ru: { 
+                login: "Вход", register: "Регистрация", username: "Логин", username_eng: "Логин (только англ.)", password: "Пароль", btn_login: "Войти", btn_register: "Создать аккаунт", hello: "Привет", logout: "Выйти", 
+                tab_game: "Игра", tab_casino: "Казино", tab_shop: "Магазин", tab_transfer: "Переводы", tab_top: "Топ", tab_settings: "Настройки", 
+                power: "Сила", income: "Доход", upgrades: "Улучшения", multi: "Мультиклик (x2)", auto: "Автокликер (+1/с)", custom: "Кастомизация", badge_mog: "Бейдж 'MOG'", donate_coin: "Донат-валюта (💎)", soon: "(Скоро)", buy: "Купить", 
+                transfers: "Переводы", receiver_nick: "Ник получателя", amount: "Сумма", send: "Перевести", day: "День", month: "Месяц", all: "Всегда", top_senders: "Топ переводчиков:", my_transfers: "Ваши переводы:", 
+                top_players: "Топ игроков", loading: "Загрузка...", settings: "Настройки", language: "Язык", theme: "Тема", theme_dark: "Тёмная", theme_light: "Светлая", theme_neon: "Неон", theme_cyber: "Киберпанк", theme_ocean: "Океан", theme_retro: "Ретро", font: "Шрифт", zoom: "Масштаб UI", 
+                promo_code: "Промокод", enter_code: "Введите код...", enter: "Ввод", danger_zone: "Опасная зона!", reset_progress: "Сбросить прогресс", muted: "Вы заглушены", chat_placeholder: "Сообщение в чат...", 
+                profile: "Профиль игрока", nick: "НИК:", balance: "БАЛАНС:", reg_date: "ДАТА РЕГИСТРАЦИИ:", banned_title: "!ВЫ ЗАБАНЕНЫ!", reason: "ПРИЧИНА:", message: "СООБЩЕНИЕ:", banned_for: "ЗАБАНЕН НА:", time_left: "ОСТАЛОСЬ:", 
+                casino_title: "Казино 'Орёл и Решка'", casino_desc: "Введи ставку и выбери сторону. Угадаешь — забираешь x2!", bet_amount: "Сумма ставки", heads: "Орёл 🦅", tails: "Решка 🪙", win: "ПОБЕДА! +", lose: "ПРОИГРЫШ! -", err_log: "Неверный логин или пароль!", err_reg: "Логин занят или есть русские буквы!", err_money: "Недостаточно денег!", err_bet: "Неверная ставка!", success: "Успешно!" 
+            },
+            en: { 
+                login: "Login", register: "Register", username: "Username", username_eng: "Username (eng only)", password: "Password", btn_login: "Login", btn_register: "Create Account", hello: "Hello", logout: "Logout", 
+                tab_game: "Game", tab_casino: "Casino", tab_shop: "Shop", tab_transfer: "Transfers", tab_top: "Top", tab_settings: "Settings", 
+                power: "Power", income: "Income", upgrades: "Upgrades", multi: "Multiclick (x2)", auto: "Auto Clicker (+1/s)", custom: "Customization", badge_mog: "'MOG' Badge", donate_coin: "Donate Coin (💎)", soon: "(Soon)", buy: "Buy", 
+                transfers: "Transfers", receiver_nick: "Receiver Nick", amount: "Amount", send: "Send", day: "Day", month: "Month", all: "All Time", top_senders: "Top Senders:", my_transfers: "Your Transfers:", 
+                top_players: "Top Players", loading: "Loading...", settings: "Settings", language: "Language", theme: "Theme", theme_dark: "Dark", theme_light: "Light", theme_neon: "Neon", theme_cyber: "Cyberpunk", theme_ocean: "Ocean", theme_retro: "Retro", font: "Font", zoom: "UI Zoom", 
+                promo_code: "Promocode", enter_code: "Enter code...", enter: "Enter", danger_zone: "Danger zone!", reset_progress: "Reset Progress", muted: "You are muted", chat_placeholder: "Message to chat...", 
+                profile: "Player Profile", nick: "NICK:", balance: "BALANCE:", reg_date: "REG DATE:", banned_title: "!YOU ARE BANNED!", reason: "REASON:", message: "MESSAGE:", banned_for: "BANNED FOR:", time_left: "TIME LEFT:", 
+                casino_title: "Casino 'Heads or Tails'", casino_desc: "Enter bet and choose side. Guess right — get x2!", bet_amount: "Bet Amount", heads: "Heads 🦅", tails: "Tails 🪙", win: "WIN! +", lose: "LOSE! -", err_log: "Wrong login or password!", err_reg: "Login taken or has cyrillic!", err_money: "Not enough money!", err_bet: "Invalid bet!", success: "Success!" 
+            }
+        };
+
+        const currentLang = "{{ user.lang if user else 'ru' }}";
         let balance = parseFloat("{{ user.balance|default(0, true) }}");
         let clickPower = parseInt("{{ user.click_power|default(1, true) }}");
         let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
         let muteUntil = parseFloat("{{ user.mute_until|default(0, true) }}");
+
+        function applyLang(lang) {
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (i18n[lang] && i18n[lang][key]) el.innerText = i18n[lang][key];
+            });
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (i18n[lang] && i18n[lang][key]) el.placeholder = i18n[lang][key];
+            });
+        }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -381,12 +445,12 @@ HTML_CODE = """
         function doAuth(action) {
             let u = action === 'login' ? document.getElementById('l-username').value : document.getElementById('r-username').value;
             let p = action === 'login' ? document.getElementById('l-password').value : document.getElementById('r-password').value;
-            if(/[а-яА-ЯёЁ]/.test(u) || /[а-яА-ЯёЁ]/.test(p)) return showToast("Только английские буквы!", 'error');
+            if(/[а-яА-ЯёЁ]/.test(u) || /[а-яА-ЯёЁ]/.test(p)) return showToast(i18n[currentLang].err_reg, 'error');
             fetch('/' + action, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) })
             .then(res => res.json().then(data => ({status: res.status, data}))).then(res => {
                 if(res.status === 200 && res.data.success) window.location.reload();
                 else if (res.status === 403 && res.data.banned) window.location.reload(); 
-                else showToast(action === 'login' ? "Неверный логин или пароль!" : "Логин занят!", 'error');
+                else showToast(action === 'login' ? i18n[currentLang].err_log : i18n[currentLang].err_reg, 'error');
             });
         }
 
@@ -401,7 +465,6 @@ HTML_CODE = """
         }
 
         setInterval(() => {
-            if(!isLoggedIn) return;
             fetch('/api/user').then(r => { if(r.status === 403) { window.location.reload(); return; } return r.json(); }).then(data => {
                 if(data && data.success) {
                     if(data.balance !== balance) { balance = data.balance; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; }
@@ -413,14 +476,13 @@ HTML_CODE = """
         }, 2000);
 
         setInterval(() => {
-            if(!isLoggedIn || autoIncome <= 0) return;
+            if(autoIncome <= 0) return;
             balance += autoIncome;
             document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
             fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: autoIncome}) });
         }, 1000);
 
         function clickCoin(e) {
-            if(!isLoggedIn) return;
             initAudio(); balance += clickPower;
             const scoreEl = document.getElementById('score');
             scoreEl.innerText = Math.floor(balance) + ' ₽'; scoreEl.style.transform = "scale(1.1)";
@@ -432,11 +494,36 @@ HTML_CODE = """
             .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
         }
 
+        // КАЗИНО
+        function playCasino(choice) {
+            let bet = parseFloat(document.getElementById('casino-bet').value);
+            if(!bet || bet <= 0) return showToast(i18n[currentLang].err_bet, 'error');
+            if(balance < bet) return showToast(i18n[currentLang].err_money, 'error');
+            
+            fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, choice: choice}) })
+            .then(res => res.json()).then(data => {
+                if(data.success) {
+                    balance = data.new_balance;
+                    document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+                    let resEl = document.getElementById('casino-result');
+                    if(data.win) {
+                        resEl.innerText = i18n[currentLang].win + bet + ' ₽';
+                        resEl.style.color = 'var(--neon)';
+                        playSound('success');
+                    } else {
+                        resEl.innerText = i18n[currentLang].lose + bet + ' ₽';
+                        resEl.style.color = '#ff4444';
+                        playSound('error');
+                    }
+                } else showToast(data.error, 'error');
+            });
+        }
+
         function buyUpgrade(type) {
             fetch('/api/buy', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: type}) })
             .then(res => res.json()).then(data => { 
-                if(data.success) { showToast("Успешно!", 'success'); balance = data.new_balance; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; setTimeout(() => location.reload(), 1000); } 
-                else showToast("Мало денег!", 'error'); 
+                if(data.success) { showToast(i18n[currentLang].success, 'success'); balance = data.new_balance; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; setTimeout(() => location.reload(), 1000); } 
+                else showToast(i18n[currentLang].err_money, 'error'); 
             });
         }
 
@@ -444,7 +531,7 @@ HTML_CODE = """
             fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type, value, price}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { 
-                    showToast("Успешно!", 'success'); 
+                    showToast(i18n[currentLang].success, 'success'); 
                     balance = data.new_balance; 
                     document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
                     if (type === 'badge') {
@@ -463,7 +550,7 @@ HTML_CODE = """
                         }
                     }
                 } 
-                else showToast("Мало денег!", 'error'); 
+                else showToast(i18n[currentLang].err_money, 'error'); 
             });
         }
 
@@ -487,19 +574,16 @@ HTML_CODE = """
 
         function openProfile(username) {
             fetch('/api/profile/' + username).then(res => res.json()).then(data => {
-                if(data.error) return showToast("Ошибка загрузки профиля", "error");
-                
+                if(data.error) return showToast("Error", "error");
                 let nameClass = data.color === 'rainbow' ? 'rainbow-text' : '';
                 let nameStyle = data.color !== 'rainbow' ? `style="color:${data.color}; font-weight:bold;"` : '';
                 let badgeClass = data.badge_color === 'rainbow' ? 'rainbow-text' : '';
                 let badgeStyle = data.badge_color !== 'rainbow' ? `background:${data.badge_color}; color:#000; border-color:${data.badge_color};` : '';
                 let badgeHtml = data.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${data.badge}</span>` : '';
-
                 document.getElementById('p-nick').innerHTML = `<span class="${nameClass}" ${nameStyle}>${data.username}</span> ${badgeHtml}`;
                 document.getElementById('p-balance').innerText = Math.floor(data.balance) + ' ₽';
                 document.getElementById('p-coins').innerText = Math.floor(data.mog_coins) + ' 💎';
                 document.getElementById('p-date').innerText = data.created_at;
-                
                 openModal('profile-modal');
             });
         }
@@ -510,7 +594,7 @@ HTML_CODE = """
                 if(data.success) {
                     document.getElementById('other-ban-nick').innerText = data.username; document.getElementById('other-ban-reason').innerText = data.ban_reason;
                     let remaining = data.remaining; let text = "";
-                    if(remaining > 0) { let d = Math.floor(remaining / 86400); let h = Math.floor((remaining % 86400) / 3600); let m = Math.floor((remaining % 3600) / 60); if(d>0) text+=d+"д "; if(h>0) text+=h+"ч "; text+=m+"м"; } else text = "Истек";
+                    if(remaining > 0) { let d = Math.floor(remaining / 86400); let h = Math.floor((remaining % 86400) / 3600); let m = Math.floor((remaining % 3600) / 60); if(d>0) text+=d+"d "; if(h>0) text+=h+"h "; text+=m+"m"; } else text = "Expired";
                     document.getElementById('other-ban-until').innerText = text; openModal('other-ban-modal');
                 }
             });
@@ -519,9 +603,9 @@ HTML_CODE = """
 
         function changeSetting(key, value) {
             if(key === 'theme') { document.body.className = 'theme-' + value; document.getElementById('display-theme').innerText = value; }
-            if(key === 'lang') { document.getElementById('display-lang').innerText = value; }
+            if(key === 'lang') { document.getElementById('display-lang').innerText = value === 'ru' ? 'Русский' : 'English'; applyLang(value); }
             if(key === 'font_family') { document.body.style.fontFamily = "'" + value + "', sans-serif"; document.getElementById('display-font').innerText = value; }
-            fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: key, value: value}) }).then(() => { showToast("Сохранено!", 'success'); closeModal('lang-modal'); closeModal('theme-modal'); closeModal('font-modal'); });
+            fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: key, value: value}) }).then(() => { showToast(i18n[currentLang].success, 'success'); closeModal('lang-modal'); closeModal('theme-modal'); closeModal('font-modal'); });
         }
 
         function updateZoom(val) {
@@ -530,14 +614,14 @@ HTML_CODE = """
             window.zoomTimer = setTimeout(() => { fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: 'zoom', value: val}) }); }, 500);
         }
 
-        function resetProgress() { if(confirm("Точно сбросить?")) fetch('/api/reset', { method: 'POST' }).then(() => location.reload()); }
+        function resetProgress() { if(confirm(i18n[currentLang].reset_progress + "?")) fetch('/api/reset', { method: 'POST' }).then(() => location.reload()); }
 
         function doTransfer() {
             let nick = document.getElementById('tr-nick').value; let amount = parseFloat(document.getElementById('tr-amount').value);
-            if(!nick || !amount || amount <= 0) return showToast("Заполни поля!", "error");
+            if(!nick || !amount || amount <= 0) return showToast(i18n[currentLang].err_bet, "error");
             fetch('/api/transfer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({receiver: nick, amount: amount}) })
             .then(res => res.json()).then(data => {
-                if(data.success) { showToast("Перевод успешен!", 'success'); document.getElementById('tr-nick').value = ''; document.getElementById('tr-amount').value = ''; balance -= amount; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; loadTransfers('day', document.querySelector('#view-transfer .nav-btn')); } 
+                if(data.success) { showToast(i18n[currentLang].success, 'success'); document.getElementById('tr-nick').value = ''; document.getElementById('tr-amount').value = ''; balance -= amount; document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; loadTransfers('day', document.querySelector('#view-transfer .nav-btn')); } 
                 else showToast(data.error, 'error');
             });
         }
@@ -546,12 +630,12 @@ HTML_CODE = """
             document.querySelectorAll('#view-transfer .nav-btn').forEach(b => { b.classList.remove('active'); });
             if(btn) btn.classList.add('active');
             fetch('/api/transfers/top?period=' + period).then(res => res.json()).then(data => {
-                let html = ''; data.forEach((t, i) => { html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">#${i+1} <b>${t.sender}</b> перевел <b>${t.total}</b> ₽</div>`; });
-                document.getElementById('transfer-top-list').innerHTML = html || '<div style="color:#888;">Нет переводов</div>';
+                let html = ''; data.forEach((t, i) => { html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">#${i+1} <b>${t.sender}</b> -> <b>${t.total}</b> ₽</div>`; });
+                document.getElementById('transfer-top-list').innerHTML = html || '<div style="color:#888;">-</div>';
             });
             fetch('/api/transfers/my').then(res => res.json()).then(data => {
                 let html = ''; data.forEach(t => { let date = new Date(t.timestamp * 1000).toLocaleString(); html += `<div style="padding:5px 0; border-bottom:1px solid var(--border);">Вы -> <b>${t.receiver}</b> (${t.amount} ₽) <br><span style="font-size:10px; color:#888;">${date}</span></div>`; });
-                document.getElementById('my-transfer-list').innerHTML = html || '<div style="color:#888;">Вы еще не переводили</div>';
+                document.getElementById('my-transfer-list').innerHTML = html || '<div style="color:#888;">-</div>';
             });
         }
 
@@ -559,12 +643,11 @@ HTML_CODE = """
             let code = document.getElementById('promo-input').value;
             if(!code) return;
             fetch('/api/promo/redeem', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code: code}) })
-            .then(res => res.json()).then(data => { if(data.success) { showToast("Промокод активирован!", 'success'); document.getElementById('promo-input').value = ''; setTimeout(() => location.reload(), 1000); } else showToast(data.error, 'error'); });
+            .then(res => res.json()).then(data => { if(data.success) { showToast(i18n[currentLang].success, 'success'); document.getElementById('promo-input').value = ''; setTimeout(() => location.reload(), 1000); } else showToast(data.error, 'error'); });
         }
 
         let currentReplyUser = ""; let currentReplyText = "";
         function loadChat() {
-            if(!isLoggedIn) return;
             fetch('/api/chat/get').then(res => res.json()).then(data => {
                 let container = document.getElementById('chat-messages');
                 let isScrolledToBottom = container.scrollHeight - container.clientHeight <= container.scrollTop + 50;
@@ -578,7 +661,10 @@ HTML_CODE = """
                     let badgeHtml = m.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${m.badge}</span>` : '';
                     let replyHtml = '';
                     if(m.reply_user) { replyHtml = `<div class="chat-reply-preview" style="display:block; border-left-color:var(--neon); margin-bottom:8px;"><b>${m.reply_user}</b><br>${m.reply_text}</div>`; }
-                    html += `<div class="chat-msg" onmousedown="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')">
+                    
+                    let msgClass = m.is_red ? 'red-text-msg' : '';
+
+                    html += `<div class="chat-msg ${msgClass}" onmousedown="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')">
                                 ${replyHtml}<span class="${nameClass}" style="${nameStyle}">${m.username}</span> ${badgeHtml}
                                 <span style="font-size:10px; color:#888; float:right;">${time}</span><br>${m.text}</div>`;
                 });
@@ -601,7 +687,7 @@ HTML_CODE = """
 
         function setReply(user, text) {
             currentReplyUser = user; currentReplyText = text;
-            document.getElementById('reply-text-preview').innerText = "Ответ: " + user; document.getElementById('reply-message-preview').innerText = text;
+            document.getElementById('reply-text-preview').innerText = "Reply: " + user; document.getElementById('reply-message-preview').innerText = text;
             document.getElementById('chat-reply-bar').style.display = 'block'; document.getElementById('chat-input').focus();
         }
         function cancelReply() { currentReplyUser = ""; currentReplyText = ""; document.getElementById('chat-reply-bar').style.display = 'none'; }
@@ -609,13 +695,16 @@ HTML_CODE = """
         function sendChat() {
             let inp = document.getElementById('chat-input');
             if(!inp.value.trim()) return;
-            fetch('/api/chat/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: inp.value, reply_user: currentReplyUser, reply_text: currentReplyText}) })
+            let isRed = false;
+            let toggle = document.getElementById('red-text-toggle');
+            if (toggle) isRed = toggle.checked;
+
+            fetch('/api/chat/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: inp.value, reply_user: currentReplyUser, reply_text: currentReplyText, is_red: isRed}) })
             .then(res => res.json()).then(data => { if(data.success) { inp.value = ''; cancelReply(); loadChat(); } else showToast(data.error, 'error'); });
         }
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
 
         function checkMuteStatus() {
-            if (!isLoggedIn) return;
             let now = Math.floor(Date.now() / 1000); 
             let muteTimeLeft = muteUntil - now;
             let inputArea = document.getElementById('chat-input-area'); 
@@ -626,7 +715,7 @@ HTML_CODE = """
                 muteStatus.style.display = 'block'; 
                 let m = Math.floor(muteTimeLeft / 60); 
                 let s = muteTimeLeft % 60; 
-                document.getElementById('mute-timer').innerText = (m > 0 ? m + "м " : "") + s + "с"; 
+                document.getElementById('mute-timer').innerText = (m > 0 ? m + "m " : "") + s + "s"; 
             }
             else { 
                 inputArea.style.display = 'flex'; 
@@ -634,7 +723,11 @@ HTML_CODE = """
             }
         }
         setInterval(checkMuteStatus, 1000);
-        window.onload = () => { if(isLoggedIn) { setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); } };
+        
+        window.onload = () => { 
+            applyLang(currentLang);
+            setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); 
+        };
     </script>
 </body>
 </html>
@@ -749,6 +842,30 @@ def api_click():
     user.balance += request.json.get('amount', 1)
     db.session.commit()
     return jsonify({'success': True})
+
+@app.route('/api/casino/bet', methods=['POST'])
+def api_casino_bet():
+    if 'user_id' not in session: 
+        return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    bet = float(data.get('bet', 0))
+    choice = data.get('choice')
+    
+    user = User.query.get(session['user_id'])
+    if not user or bet <= 0 or user.balance < bet:
+        return jsonify({'error': 'Invalid bet'}), 400
+        
+    import random
+    result = random.choice(['heads', 'tails'])
+    win = (result == choice)
+    
+    if win:
+        user.balance += bet
+    else:
+        user.balance -= bet
+        
+    db.session.commit()
+    return jsonify({'success': True, 'win': win, 'new_balance': user.balance})
 
 @app.route('/api/buy', methods=['POST'])
 def api_buy():
@@ -878,7 +995,8 @@ def api_chat_get():
             'reply_text': m.reply_text, 
             'color': u.color if u else '#fff', 
             'badge': u.badge if u else '', 
-            'badge_color': u.badge_color if u else '#fff'
+            'badge_color': u.badge_color if u else '#fff',
+            'is_red': m.is_red
         })
     return jsonify(res)
 
@@ -893,7 +1011,11 @@ def api_chat_send():
     user = User.query.get(session['user_id'])
     if user.mute_until > time.time(): 
         return jsonify({'error': 'Вы заглушены!'}), 403
-    msg = ChatMessage(username=user.username, text=text[:100], timestamp=time.time(), reply_user=data.get('reply_user', ''), reply_text=data.get('reply_text', '')[:50])
+    
+    # Проверка на красный текст
+    is_red = data.get('is_red', False) and user.can_write_red
+    
+    msg = ChatMessage(username=user.username, text=text[:100], timestamp=time.time(), reply_user=data.get('reply_user', ''), reply_text=data.get('reply_text', '')[:50], is_red=is_red)
     db.session.add(msg)
     db.session.commit()
     return jsonify({'success': True})
@@ -957,19 +1079,15 @@ def api_admin_command():
             return jsonify({'error': f'Игрок {target} не найден'})
             
         if action == '/give' and len(parts) >= 3:
-            try: 
-                amount = float(parts[2])
-            except ValueError: 
-                return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            try: amount = float(parts[2])
+            except ValueError: return jsonify({'error': 'Сумма должна быть числом'})
             user.balance += amount
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Выдано {amount} ₽'})
             
         elif action == '/givecoins' and len(parts) >= 3:
-            try: 
-                amount = float(parts[2])
-            except ValueError: 
-                return jsonify({'error': 'Сумма должна быть числом (цифрами)'})
+            try: amount = float(parts[2])
+            except ValueError: return jsonify({'error': 'Сумма должна быть числом'})
             user.mog_coins += amount
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Выдано {amount} MOG Coins'})
@@ -978,7 +1096,7 @@ def api_admin_command():
             user.badge = parts[2]
             user.badge_expire = time.time() + 14 * 86400
             db.session.commit()
-            return jsonify({'success': True, 'msg': f'Бейдж {parts[2]} выдан'})
+            return jsonify({'success': True, 'msg': f'Бейдж выдан'})
             
         elif action == '/setcolor' and len(parts) >= 3: 
             user.color = parts[2]
@@ -989,6 +1107,16 @@ def api_admin_command():
             user.badge_color = parts[2]
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Цвет бейджа изменен'})
+            
+        elif action == '/givered': 
+            user.can_write_red = True
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Доступ к красному чату выдан'})
+            
+        elif action == '/removered': 
+            user.can_write_red = False
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Доступ к красному чату забран'})
             
         elif action == '/ban' and len(parts) >= 3:
             duration = parts[2]
