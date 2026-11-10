@@ -59,7 +59,7 @@ class Inventory(db.Model):
     __tablename__ = 'inventory'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    item_type = db.Column(db.String(20)) # 'skin' или 'badge'
+    item_type = db.Column(db.String(20)) 
     item_name = db.Column(db.String(50))
     item_mult = db.Column(db.Float, default=1.0)
 
@@ -111,61 +111,65 @@ HTML_CODE = """
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&family=Montserrat:wght@400;700&family=Play:wght@400;700&family=Russo+One&display=swap" rel="stylesheet">
     <style>
-        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+        /* ГЛОБАЛЬНАЯ ПЛАВНОСТЬ */
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease; }
+        
         :root { --bg: #121212; --panel: #1e1e1e; --text: #ffffff; --neon: #00ffcc; --gold: #ffd700; --border: #333; }
         body.theme-light { --bg: #f0f0f0; --panel: #ffffff; --text: #121212; --neon: #0077ff; --border: #ccc; }
         body.theme-neon { --bg: #0a001a; --panel: #1a0033; --text: #ffffff; --neon: #ff00ff; --border: #ff00ff; }
         body.theme-cyber { --bg: #000000; --panel: #111111; --text: #ffff00; --neon: #ff003c; --border: #ff003c; }
         body.theme-ocean { --bg: #001220; --panel: #003366; --text: #e0f7fa; --neon: #00e5ff; --border: #00e5ff; }
         body.theme-retro { --bg: #1a1a1a; --panel: #2a2a2a; --text: #00ff00; --neon: #00ff00; --border: #00ff00; }
-        body { background: var(--bg); color: var(--text); font-family: '{{ user.font_family if user else "Montserrat" }}', sans-serif; margin: 0; padding: 10px; user-select: none; text-align: center; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; align-items: center; transition: background 0.3s, color 0.3s; }
         
-        .view { display: none; background: var(--panel); padding: 20px; border-radius: 20px; border: 1px solid var(--border); min-height: 400px; width: 100%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); opacity: 0; transform: translateY(20px) scale(0.98); transition: opacity 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .view.active { display: block; opacity: 1; transform: translateY(0) scale(1); }
+        body { background: var(--bg); color: var(--text); font-family: '{{ user.font_family if user else "Montserrat" }}', sans-serif; margin: 0; padding: 10px; user-select: none; text-align: center; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+        
+        .view { display: none; background: var(--panel); padding: 20px; border-radius: 20px; border: 1px solid var(--border); min-height: 400px; width: 100%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); opacity: 0; transform: translateY(20px) scale(0.98); }
+        .view.active { display: block; opacity: 1; transform: translateY(0) scale(1); animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 
         #auth-wrapper { display: flex; justify-content: center; align-items: center; min-height: 100vh; width: 100%; }
         .glass-card { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); border: 1px solid rgba(255, 255, 255, 0.1); padding: 30px 20px; border-radius: 25px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); width: 100%; max-width: 400px; }
         
         .auth-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .auth-tab { flex: 1; padding: 10px; background: var(--border); color: var(--text); border: none; border-radius: 10px; cursor: pointer; transition: 0.3s; font-weight: bold; }
-        .auth-tab.active { background: var(--neon); color: #000; box-shadow: 0 0 10px var(--neon); }
+        .auth-tab { flex: 1; padding: 10px; background: var(--border); color: var(--text); border: none; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        .auth-tab.active { background: var(--neon); color: #000; box-shadow: 0 0 10px var(--neon); transform: translateY(-2px); }
         .auth-form { display: none; }
-        .auth-form.active { display: block; animation: fadeIn 0.3s; }
+        .auth-form.active { display: block; animation: fadeIn 0.3s ease; }
 
-        input[type="text"], input[type="password"], input[type="number"] { width: 100%; padding: 15px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: var(--text); border-radius: 15px; margin-bottom: 15px; outline: none; font-size: 16px; transition: 0.3s; }
+        input[type="text"], input[type="password"], input[type="number"] { width: 100%; padding: 15px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2); color: var(--text); border-radius: 15px; margin-bottom: 15px; outline: none; font-size: 16px; }
         input:focus { border-color: var(--neon); box-shadow: 0 0 15px var(--neon); background: rgba(0,0,0,0.5); }
         
-        .btn-main { background: var(--neon); color: #000; padding: 15px; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; font-size: 16px; width: 100%; margin-bottom: 15px; transition: 0.3s; box-shadow: 0 0 15px transparent; }
+        .btn-main { background: var(--neon); color: #000; padding: 15px; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; font-size: 16px; width: 100%; margin-bottom: 15px; box-shadow: 0 0 15px transparent; }
         .btn-main:hover { filter: brightness(1.2); box-shadow: 0 0 15px var(--neon); transform: translateY(-2px); }
         .btn-main:active { transform: translateY(1px); }
         .btn-danger { background: #ff4444; color: white; }
-        .btn-gold { background: var(--gold); box-shadow: 0 0 15px transparent; }
+        .btn-gold { background: var(--gold); }
         .btn-gold:hover { box-shadow: 0 0 15px var(--gold); }
         .btn-disabled { background: #444 !important; color: #888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
 
-        .nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.2s; font-size: 14px; }
+        .nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .nav-btn:hover { border-color: var(--neon); color: var(--neon); }
         .nav-btn.active { border-color: var(--neon); color: var(--neon); box-shadow: 0 0 10px var(--neon); }
 
-        #score { font-size: 45px; color: var(--gold); font-weight: bold; text-shadow: 0 0 15px rgba(255,215,0,0.4); margin: 15px 0; transition: transform 0.1s; }
-        #coin { width: 200px; height: 200px; background: radial-gradient(circle, var(--gold), #b8860b); border-radius: 50%; margin: 20px auto; font-size: 80px; line-height: 200px; cursor: pointer; box-shadow: 0 0 40px var(--gold); display: block; transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        #score { font-size: 45px; color: var(--gold); font-weight: bold; text-shadow: 0 0 15px rgba(255,215,0,0.4); margin: 15px 0; }
+        #coin { width: 200px; height: 200px; background: radial-gradient(circle, var(--gold), #b8860b); border-radius: 50%; margin: 20px auto; font-size: 80px; line-height: 200px; cursor: pointer; box-shadow: 0 0 40px var(--gold); display: block; }
+        #coin:hover { transform: scale(1.05); }
         #coin:active { transform: scale(0.85); box-shadow: 0 0 20px var(--gold); }
         
         .stats-box { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 15px; font-size: 14px; display: flex; justify-content: space-around;}
         
-        .shop-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 10px; border-radius: 15px; border: 1px solid var(--border); transition: 0.3s; }
-        .shop-item:hover { border-color: var(--neon); transform: translateX(5px); }
-        .shop-item button { background: var(--neon); color: #000; border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .shop-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 10px; border-radius: 15px; border: 1px solid var(--border); }
+        .shop-item:hover { border-color: var(--neon); transform: translateX(5px); box-shadow: 0 0 10px rgba(0,255,204,0.1); }
+        .shop-item button { background: var(--neon); color: #000; border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; }
         
-        .top-player { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); align-items: center; transition: 0.2s; cursor: pointer; border-radius: 10px; }
+        .top-player { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); align-items: center; cursor: pointer; border-radius: 10px; }
         .top-player:hover { background: rgba(255,255,255,0.05); border-left: 3px solid var(--neon); padding-left: 15px; }
         
         .floating { position: fixed; color: var(--gold); font-weight: bold; font-size: 30px; pointer-events: none; animation: floatUp 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards; text-shadow: 0 0 10px #000; z-index: 999; }
         @keyframes floatUp { 0% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(-120px) scale(1.5); } }
         
-        .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 5px; font-weight: bold; display: inline-block; text-shadow: none; cursor: help; transition: 0.2s; background: rgba(255,255,255,0.1); border: 1px solid var(--border); }
+        .badge { padding: 4px 10px; border-radius: 12px; font-size: 12px; margin-left: 5px; font-weight: bold; display: inline-block; cursor: help; background: rgba(255,255,255,0.1); border: 1px solid var(--border); }
         .badge:hover { transform: scale(1.1); border-color: var(--neon); }
-        .hammer { margin-left: 5px; font-size: 14px; cursor: pointer; filter: drop-shadow(0 0 5px #ff0000); transition: 0.2s; }
-        .hammer:hover { transform: scale(1.3); }
         
         .rainbow-text { background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8f00ff, #ff0000); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold; animation: rainbowAnim 3s linear infinite; }
         @keyframes rainbowAnim { to { background-position: 200% center; } }
@@ -176,19 +180,20 @@ HTML_CODE = """
         @keyframes slideDown { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         @keyframes fadeOut { to { opacity: 0; transform: translateY(-20px); } }
         
-        .setting-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 10px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; transition: 0.2s; }
-        .setting-item:hover { border-color: var(--neon); }
+        .setting-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 10px; border-radius: 10px; border: 1px solid var(--border); cursor: pointer; }
+        .setting-item:hover { border-color: var(--neon); transform: translateY(-2px); }
         input[type="range"] { width: 100%; accent-color: var(--neon); height: 20px; margin-top: 10px; }
         
-        .modal { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; backdrop-filter: blur(5px); opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+        .modal { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; backdrop-filter: blur(5px); opacity: 0; visibility: hidden; }
         .modal.active { opacity: 1; visibility: visible; }
-        .modal-content { background: #1a1a1a; border: 2px solid var(--neon); padding: 25px; border-radius: 15px; max-width: 90%; width: 350px; text-align: left; box-shadow: 0 0 30px rgba(0,255,204,0.2); position: relative; transform: scale(0.7) translateY(50px); transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); max-height: 80vh; overflow-y: auto; }
-        .modal.active .modal-content { transform: scale(1) translateY(0); }
+        .modal-content { background: #1a1a1a; border: 2px solid var(--neon); padding: 25px; border-radius: 15px; max-width: 90%; width: 350px; text-align: left; box-shadow: 0 0 30px rgba(0,255,204,0.2); position: relative; transform: scale(0.8); max-height: 80vh; overflow-y: auto; }
+        .modal.active .modal-content { transform: scale(1); animation: modalPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes modalPop { 0% { transform: scale(0.8); } 100% { transform: scale(1); } }
         .modal-title { color: var(--neon); font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 20px; text-shadow: 0 0 10px var(--neon); }
-        .close-btn { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #ff4444; transition: 0.2s; }
-        .close-btn:hover { transform: scale(1.2) rotate(90deg); text-shadow: 0 0 10px #ff4444; }
+        .close-btn { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #ff4444; }
+        .close-btn:hover { transform: scale(1.2) rotate(90deg); }
         
-        .custom-option { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; transition: 0.2s; border-radius: 8px; margin-bottom: 5px; font-size: 16px; }
+        .custom-option { padding: 15px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 8px; margin-bottom: 5px; font-size: 16px; }
         .custom-option:hover { background: rgba(255,255,255,0.1); color: var(--neon); padding-left: 20px; }
 
         .info-label { color: #0077ff; font-weight: bold; margin-bottom: 5px; font-size: 14px;}
@@ -196,7 +201,7 @@ HTML_CODE = """
         
         #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
         #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
-        .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; transition: transform 0.2s;}
+        .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; }
         .chat-msg.red-text-msg { color: #ff4444; border-left-color: #ff4444; }
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
         #chat-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
@@ -213,15 +218,13 @@ HTML_CODE = """
         .casino-buttons button { flex: 1; font-size: 16px; padding: 12px; }
         #casino-result { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: center; height: 30px;}
         
-        /* АНИМАЦИЯ МОНЕТКИ */
-        .coin-flip-container { width: 100px; height: 100px; margin: 20px auto; perspective: 1000px; display: none; }
-        .coin-flip { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 1.5s ease-out; }
-        .coin-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 50%; background: radial-gradient(circle, var(--gold), #b8860b); display: flex; justify-content: center; align-items: center; font-size: 40px; font-weight: bold; border: 4px solid #8b6508;}
-        .coin-back { transform: rotateY(180deg); background: radial-gradient(circle, #d4af37, #8b6508); }
+        /* МОНЕТКА */
+        .coin-flip-container { width: 120px; height: 120px; margin: 20px auto; perspective: 1000px; display: none; font-size: 100px; line-height: 120px; }
+        .coin-flip { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 2s cubic-bezier(0.25, 1, 0.5, 1); }
         
-        /* КОЛЕСО ФОРТУНЫ */
+        /* КОЛЕСО */
         .wheel-container { width: 200px; height: 200px; margin: 20px auto; position: relative; display: none; }
-        .wheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--gold); position: relative; background: conic-gradient(#ff4444 0deg 60deg, #444 60deg 120deg, #00ffcc 120deg 180deg, #444 180deg 240deg, #ffd700 240deg 300deg, #444 300deg 360deg); transition: transform 2s cubic-bezier(0.1, 0.7, 0.1, 1); }
+        .wheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--gold); position: relative; background: conic-gradient(#ff4444 0deg 60deg, #444 60deg 120deg, #00ffcc 120deg 180deg, #444 180deg 240deg, #ffd700 240deg 300deg, #444 300deg 360deg); transition: transform 3s cubic-bezier(0.1, 0.7, 0.1, 1); }
         .wheel-pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 30px; z-index: 10; filter: drop-shadow(0 0 5px #000); }
         .wheel-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px #000;}
 
@@ -230,7 +233,7 @@ HTML_CODE = """
         .inv-item { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 10px; padding: 15px; text-align: center; }
         .inv-item h4 { margin: 0 0 5px 0; font-size: 16px; color: var(--gold); }
         .inv-item p { margin: 0 0 10px 0; font-size: 12px; color: #aaa; }
-        .inv-item button { padding: 8px; font-size: 12px; }
+        .inv-item button { padding: 8px; font-size: 12px; width: 100%;}
     </style>
 </head>
 <body class="theme-{{ user.theme if user else 'dark' }}" style="zoom: {{ user.zoom if user else 100 }}%; font-family: '{{ user.font_family if user else 'Montserrat' }}', sans-serif;">
@@ -241,25 +244,10 @@ HTML_CODE = """
             <div class="modal-content" style="border-color: #ff4444;">
                 <div class="modal-title" style="color: #ff4444;">!ВЫ ЗАБАНЕНЫ!</div>
                 <div class="info-label">ПРИЧИНА:</div><div class="info-value" style="color: #ff4444;">{{ user.ban_reason }}</div>
-                <div class="info-label">СООБЩЕНИЕ:</div><div class="info-value" style="color: #aaa; font-size: 13px;">{{ user.ban_msg }}</div>
                 <div class="info-label">ЗАБАНЕН НА:</div><div class="info-value">{{ user.ban_duration }}</div>
-                <div class="info-label">ОСТАЛОСЬ:</div><div class="info-value" id="ban-timer" style="color: #ff4444; font-weight: bold; font-size: 18px;"></div>
                 <a href="/logout" class="btn-main btn-danger" style="display: block; text-decoration: none; margin-top: 20px;">Выйти</a>
             </div>
         </div>
-        <script>
-            let remaining = {{ remaining_seconds }};
-            function updateTimer() {
-                if(remaining <= 0) { window.location.reload(); return; }
-                let d = Math.floor(remaining / 86400); let h = Math.floor((remaining % 86400) / 3600);
-                let m = Math.floor((remaining % 3600) / 60); let s = remaining % 60;
-                let text = ""; if(d > 0) text += d + "d "; if(h > 0) text += h + "h ";
-                text += m + "m " + s + "s"; document.getElementById('ban-timer').innerText = text;
-                remaining--; setTimeout(updateTimer, 1000);
-            }
-            updateTimer();
-        </script>
-
     {% elif not user %}
         <div id="auth-wrapper">
             <div class="glass-card">
@@ -327,10 +315,7 @@ HTML_CODE = """
                 <input type="number" id="casino-bet" placeholder="Сумма ставки">
                 
                 <div class="coin-flip-container" id="coin-anim">
-                    <div class="coin-flip" id="coin-element">
-                        <div class="coin-face">🦅</div>
-                        <div class="coin-face coin-back">🪙</div>
-                    </div>
+                    <div class="coin-flip" id="coin-element">🪙</div>
                 </div>
 
                 <div class="casino-buttons">
@@ -360,12 +345,30 @@ HTML_CODE = """
             <div class="shop-item"><div>Автокликер (+1/с)</div><button id="btn-auto" onclick="buyUpgrade('auto')">{{ auto_price }} ₽</button></div>
             
             <h3>Скины (Множители)</h3>
-            <div class="shop-item"><div>Iron Skin (x1.5)</div><button onclick="buyItem('skin', 'Iron', 10000, 1.5)">10,000 ₽</button></div>
-            <div class="shop-item"><div>Gold Skin (x2)</div><button onclick="buyItem('skin', 'Gold', 50000, 2.0)">50,000 ₽</button></div>
-            <div class="shop-item"><div>Diamond Skin (x5)</div><button onclick="buyItem('skin', 'Diamond', 500000, 5.0)">500,000 ₽</button></div>
+            {% if 'Iron' in inv_names %}
+                <div class="shop-item"><div>Iron Skin (x1.5)</div><button class="btn-disabled" disabled>Куплено</button></div>
+            {% else %}
+                <div class="shop-item"><div>Iron Skin (x1.5)</div><button onclick="buyItem('skin', 'Iron', 10000, 1.5, this)">10,000 ₽</button></div>
+            {% endif %}
+            
+            {% if 'Gold' in inv_names %}
+                <div class="shop-item"><div>Gold Skin (x2)</div><button class="btn-disabled" disabled>Куплено</button></div>
+            {% else %}
+                <div class="shop-item"><div>Gold Skin (x2)</div><button onclick="buyItem('skin', 'Gold', 50000, 2.0, this)">50,000 ₽</button></div>
+            {% endif %}
+            
+            {% if 'Diamond' in inv_names %}
+                <div class="shop-item"><div>Diamond Skin (x5)</div><button class="btn-disabled" disabled>Куплено</button></div>
+            {% else %}
+                <div class="shop-item"><div>Diamond Skin (x5)</div><button onclick="buyItem('skin', 'Diamond', 500000, 5.0, this)">500,000 ₽</button></div>
+            {% endif %}
 
             <h3>Бейджи</h3>
-            <div class="shop-item"><div>Бейдж "MOG" <br><small style="color: #888; font-size: 10px;">(14 дней)</small></div><button onclick="buyItem('badge', 'MOG', 5000, 0)">5,000 ₽</button></div>
+            {% if 'MOG' in inv_names %}
+                <div class="shop-item"><div>Бейдж "MOG"</div><button class="btn-disabled" disabled>Куплено</button></div>
+            {% else %}
+                <div class="shop-item"><div>Бейдж "MOG" (14 дней)</div><button onclick="buyItem('badge', 'MOG', 5000, 0, this)">5,000 ₽</button></div>
+            {% endif %}
 
             <h3>Донат-валюта (💎)</h3>
             <div class="shop-item" style="opacity: 0.7;"><div>100 💎<br><small style="color: #ff4444;">(Скоро)</small></div><button class="btn-disabled">Купить</button></div>
@@ -459,7 +462,6 @@ HTML_CODE = """
         let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
         let muteUntil = parseFloat("{{ user.mute_until|default(0, true) }}");
         
-        // Для магазина
         let currentMultiPrice = parseInt("{{ multi_price }}");
         let currentAutoPrice = parseInt("{{ auto_price }}");
 
@@ -558,7 +560,7 @@ HTML_CODE = """
             .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
         }
 
-        // --- КАЗИНО ---
+        // --- КАЗИНО (МОНЕТКА) ---
         function playCasino(choice) {
             let bet = parseFloat(document.getElementById('casino-bet').value);
             if(!bet || bet <= 0) return showToast("Неверная ставка!", 'error');
@@ -572,10 +574,13 @@ HTML_CODE = """
             resEl.innerText = '';
             document.getElementById('casino-bet').disabled = true;
             
-            // Анимация
+            // Крутим монетку (в 3D через CSS)
             coinElement.style.transition = 'none';
             coinElement.style.transform = 'rotateY(0deg)';
-            setTimeout(() => { coinElement.style.transition = 'transform 1.5s ease-out'; coinElement.style.transform = 'rotateY(1800deg)'; }, 50);
+            setTimeout(() => { 
+                coinElement.style.transition = 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'; 
+                coinElement.style.transform = 'rotateY(1440deg)'; 
+            }, 50);
 
             setTimeout(() => {
                 document.getElementById('casino-bet').disabled = false;
@@ -585,20 +590,25 @@ HTML_CODE = """
                     if(data.success) {
                         balance = data.new_balance;
                         document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+                        
+                        // Меняем эмодзи на выпавшее
+                        coinElement.innerText = data.result === 'heads' ? '🦅' : '🪙';
+                        
                         if(data.win) {
-                            resEl.innerText = `ПОБЕДА! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} +${bet} ₽`;
+                            resEl.innerText = `ПОБЕДА! +${bet} ₽`;
                             resEl.style.color = 'var(--neon)';
                             playSound('success');
                         } else {
-                            resEl.innerText = `ПРОИГРЫШ! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} -${bet} ₽`;
+                            resEl.innerText = `ПРОИГРЫШ! -${bet} ₽`;
                             resEl.style.color = '#ff4444';
                             playSound('error');
                         }
                     } else showToast(data.error, 'error');
                 });
-            }, 1500);
+            }, 1600);
         }
 
+        // --- КАЗИНО (КОЛЕСО) ---
         function playWheel() {
             let bet = parseFloat(document.getElementById('wheel-bet').value);
             if(!bet || bet <= 0) return showToast("Неверная ставка!", 'error');
@@ -610,15 +620,28 @@ HTML_CODE = """
             document.getElementById('wheel-bet').disabled = true;
             
             let wheel = document.getElementById('wheel-element');
-            // Крутим на 3 полных оборота + случайный угол
-            let spinDegrees = 1080 + Math.floor(Math.random() * 360);
-            wheel.style.transform = `rotate(${spinDegrees}deg)`;
+            
+            // Сектора: 0(красный) 0.5(серый) 1(бирюзовый) 2(серый) 5(желтый) 0(серый)
+            // Мы запрашиваем у сервера результат, и исходя из него крутим на нужный угол.
+            fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, mode: 'wheel'}) })
+            .then(res => res.json()).then(data => {
+                if(data.success) {
+                    let mult = data.mult;
+                    let targetAngle = 0;
+                    
+                    // Вычисляем угол для остановки (сектора по 60 градусов, начиная с 0)
+                    if (mult === 0) targetAngle = 30; // Красный
+                    else if (mult === 0.5) targetAngle = 90; // Серый
+                    else if (mult === 1) targetAngle = 150; // Бирюзовый
+                    else if (mult === 2) targetAngle = 210; // Серый
+                    else if (mult === 5) targetAngle = 270; // Желтый
+                    
+                    // Крутим 4 полных оборота + нужный угол
+                    let spinDegrees = 1440 + targetAngle;
+                    wheel.style.transform = `rotate(${spinDegrees}deg)`;
 
-            setTimeout(() => {
-                fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, mode: 'wheel'}) })
-                .then(res => res.json()).then(data => {
-                    document.getElementById('wheel-bet').disabled = false;
-                    if(data.success) {
+                    setTimeout(() => {
+                        document.getElementById('wheel-bet').disabled = false;
                         balance = data.new_balance;
                         document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
                         
@@ -639,9 +662,16 @@ HTML_CODE = """
                             resEl.style.color = '#ff4444';
                             playSound('error');
                         }
-                    } else showToast(data.error, 'error');
-                });
-            }, 2000);
+                        
+                        // Сбрасываем колесо в исходное положение через 2 сек, чтобы можно было крутить снова
+                        setTimeout(() => { 
+                            wheel.style.transition = 'none'; 
+                            wheel.style.transform = 'rotate(0deg)'; 
+                            setTimeout(() => wheel.style.transition = 'transform 3s cubic-bezier(0.1, 0.7, 0.1, 1)', 50);
+                        }, 2000);
+                    }, 3000); // Ждем 3 секунды пока крутится
+                } else showToast(data.error, 'error');
+            });
         }
 
         // --- МАГАЗИН ---
@@ -654,13 +684,11 @@ HTML_CODE = """
                     document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
                     
                     if(type === 'multi') {
-                        clickPower = data.new_power;
-                        currentMultiPrice = data.new_price;
+                        clickPower = data.new_power; currentMultiPrice = data.new_price;
                         document.getElementById('ui-click-power').innerText = clickPower;
                         document.getElementById('btn-multi').innerText = currentMultiPrice + ' ₽';
                     } else if(type === 'auto') {
-                        autoIncome = data.new_income;
-                        currentAutoPrice = data.new_price;
+                        autoIncome = data.new_income; currentAutoPrice = data.new_price;
                         document.getElementById('ui-auto-income').innerText = autoIncome;
                         document.getElementById('btn-auto').innerText = currentAutoPrice + ' ₽';
                     }
@@ -669,7 +697,7 @@ HTML_CODE = """
             });
         }
 
-        function buyItem(type, name, price, mult) {
+        function buyItem(type, name, price, mult, btn) {
             if(balance < price) return showToast("Мало денег!", 'error');
             
             fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type: type, name: name, price: price, mult: mult}) })
@@ -679,9 +707,9 @@ HTML_CODE = """
                     balance = data.new_balance; 
                     document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
                     // Меняем кнопку
-                    event.target.innerText = 'Куплено';
-                    event.target.classList.add('btn-disabled');
-                    event.target.disabled = true;
+                    btn.innerText = 'Куплено';
+                    btn.classList.add('btn-disabled');
+                    btn.disabled = true;
                 } 
                 else showToast(data.error, 'error'); 
             });
@@ -694,11 +722,13 @@ HTML_CODE = """
                 let badgesHtml = '';
                 
                 data.items.forEach(item => {
-                    let btn = item.is_equipped ? `<button class="btn-disabled" disabled>Надето</button>` : `<button onclick="equipItem(${item.id})">Надеть</button>`;
+                    let btn = item.is_equipped 
+                        ? `<button class="btn-danger" onclick="unequipItem(${item.id})">Снять</button>` 
+                        : `<button onclick="equipItem(${item.id})">Надеть</button>`;
                     
                     let html = `<div class="inv-item">
                                     <h4>${item.item_name}</h4>
-                                    <p>${item.item_type === 'skin' ? 'Множитель: x' + item.item_mult : 'Бейдж'}</p>
+                                    <p>${item.item_type === 'skin' ? 'x' + item.item_mult : 'Бейдж'}</p>
                                     ${btn}
                                 </div>`;
                                 
@@ -714,10 +744,14 @@ HTML_CODE = """
         function equipItem(id) {
             fetch('/api/equip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}) })
             .then(res => res.json()).then(data => {
-                if(data.success) {
-                    showToast("Экипировано!", 'success');
-                    setTimeout(() => location.reload(), 500); // Обновляем только для смены визуала профиля
-                }
+                if(data.success) { showToast("Экипировано!", 'success'); loadInventory(); }
+            });
+        }
+
+        function unequipItem(id) {
+            fetch('/api/unequip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}) })
+            .then(res => res.json()).then(data => {
+                if(data.success) { showToast("Снято!", 'success'); loadInventory(); }
             });
         }
 
@@ -906,6 +940,8 @@ HTML_CODE = """
 def index():
     user = None
     remaining_seconds = 0
+    inv_names = []
+    
     if 'user_id' in session:
         user = User.query.get(session['user_id'])
         if not user: 
@@ -924,11 +960,14 @@ def index():
             user.badge = ''
             user.badge_expire = 0
             db.session.commit()
+            
+        if user:
+            inv_items = Inventory.query.filter_by(user_id=user.id).all()
+            inv_names = [item.item_name for item in inv_items]
 
-    # ФОРМУЛА ЦЕН 1.2
     multi_price = int(100 * (1.2 ** (user.click_power - 1))) if user and not user.is_banned else 100
     auto_price = int(250 * (1.2 ** user.auto_income)) if user and not user.is_banned else 250
-    return render_template_string(HTML_CODE, user=user, multi_price=multi_price, auto_price=auto_price, remaining_seconds=remaining_seconds)
+    return render_template_string(HTML_CODE, user=user, multi_price=multi_price, auto_price=auto_price, remaining_seconds=remaining_seconds, inv_names=inv_names)
 
 @app.route('/api/user')
 def api_user():
@@ -1090,7 +1129,6 @@ def api_buy_custom():
     user = User.query.get(session['user_id'])
     
     if user.balance >= data['price']:
-        # Проверка, есть ли уже такой предмет
         existing = Inventory.query.filter_by(user_id=user.id, item_type=data['type'], item_name=data['name']).first()
         if existing:
             return jsonify({'error': 'У вас уже есть этот предмет'}), 400
@@ -1099,7 +1137,6 @@ def api_buy_custom():
         inv_item = Inventory(user_id=user.id, item_type=data['type'], item_name=data['name'], item_mult=data.get('mult', 0))
         db.session.add(inv_item)
         
-        # Если это бейдж, выдаем сразу на 14 дней
         if data['type'] == 'badge':
             user.badge = data['name']
             user.badge_color = '#00ffcc'
@@ -1138,6 +1175,26 @@ def api_equip():
     elif item.item_type == 'badge':
         user.badge = item.item_name
         user.badge_expire = time.time() + 14 * 86400
+        
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/unequip', methods=['POST'])
+def api_unequip():
+    if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
+    data = request.json
+    user = User.query.get(session['user_id'])
+    item = Inventory.query.get(data['id'])
+    
+    if not item or item.user_id != user.id: return jsonify({'error': 'Not found'}), 404
+    
+    if item.item_type == 'skin' and user.skin == item.item_name:
+        user.skin = ''
+        user.skin_mult = 1.0
+    elif item.item_type == 'badge' and user.badge == item.item_name:
+        user.badge = ''
+        user.badge_color = '#ffffff'
+        user.badge_expire = 0
         
     db.session.commit()
     return jsonify({'success': True})
