@@ -54,7 +54,7 @@ class User(db.Model):
     can_write_red = db.Column(db.Boolean, default=False)
     skin = db.Column(db.String(50), default='')
     skin_mult = db.Column(db.Float, default=1.0)
-    mod_rank = db.Column(db.Integer, default=0) # 0 - игрок, 1 - мл.мод, 2 - ст.мод, 3 - админ, 4 - ст.админ
+    mod_rank = db.Column(db.Integer, default=0) 
 
 class Inventory(db.Model):
     __tablename__ = 'inventory'
@@ -206,7 +206,7 @@ HTML_CODE = """
         #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
         #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
         .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; }
-        .chat-msg.red-text-msg { color: #ff4444; border-left-color: #ff4444; }
+        .chat-msg.red-text-msg { color: #ff4444 !important; border-left-color: #ff4444; font-weight: bold; } /* Жирный красный */
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
         #chat-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
         #chat-reply-bar { display: none; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 5px; font-size: 12px; text-align: left; border-left: 3px solid var(--gold); position: relative;}
@@ -439,6 +439,10 @@ HTML_CODE = """
                 {% if user.mod_rank >= 3 %}
                     <button class="btn-main" style="background: #000; color: #ff0000; border: 1px solid #ff0000;" onclick="doModAction('ban')">Забанить (Бан)</button>
                 {% endif %}
+                
+                <h4 style="margin-top:20px; margin-bottom:10px;">Снять наказание</h4>
+                <button class="btn-main" style="background: #00ffcc; color: #000;" onclick="doModAction('unmute')">Размутить</button>
+                <button class="btn-main" style="background: #00ffcc; color: #000;" onclick="doModAction('unban')">Разбанить</button>
             </div>
         </div>
 
@@ -482,6 +486,7 @@ HTML_CODE = """
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
             <div class="modal-title">Профиль игрока</div>
             <div class="info-label">НИК:</div><div class="info-value" id="p-nick"></div>
+            <div class="info-label">ДОЛЖНОСТЬ:</div><div class="info-value" id="p-modrank" style="color: var(--neon);"></div>
             <div class="info-label">БАЛАНС:</div><div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
             <div class="info-label">ДОНАТ-ВАЛЮТА:</div><div class="info-value" id="p-coins" style="color: var(--neon); font-weight: bold;"></div>
             <div class="info-label">МУЛЬТИКЛИК ЛВЛ:</div><div class="info-value" id="p-multi"></div>
@@ -515,7 +520,7 @@ HTML_CODE = """
         let currentMultiPrice = parseInt("{{ multi_price }}");
         let currentAutoPrice = parseInt("{{ auto_price }}");
 
-        let lastMessageTime = 0; // КД на чат
+        let lastMessageTime = 0;
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
@@ -541,7 +546,6 @@ HTML_CODE = """
             playSound(type); 
             const container = document.getElementById('toast-container'); 
             
-            // Ограничение в 3 уведомления
             if (container.children.length >= 3) {
                 container.removeChild(container.firstElementChild);
             }
@@ -558,6 +562,7 @@ HTML_CODE = """
             else if (rank === 2) rankName = 'Старший Модератор';
             else if (rank === 3) rankName = 'Администратор';
             else if (rank === 4) rankName = 'Старший Администратор';
+            else rankName = 'Игрок';
             document.getElementById('m-rank').innerText = rankName;
             openModal('mod-info-modal');
         }
@@ -572,12 +577,21 @@ HTML_CODE = """
         function doAuth(action) {
             let u = action === 'login' ? document.getElementById('l-username').value : document.getElementById('r-username').value;
             let p = action === 'login' ? document.getElementById('l-password').value : document.getElementById('r-password').value;
+            if(!u || !p) return showToast("Заполни поля!", 'error');
             if(/[а-яА-ЯёЁ]/.test(u) || /[а-яА-ЯёЁ]/.test(p)) return showToast("Только английские буквы!", 'error');
+            
             fetch('/' + action, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username: u, password: p}) })
-            .then(res => res.json().then(data => ({status: res.status, data}))).then(res => {
-                if(res.status === 200 && res.data.success) window.location.reload();
-                else if (res.status === 403 && res.data.banned) window.location.reload(); 
-                else showToast(action === 'login' ? "Неверный логин или пароль!" : "Логин занят!", 'error');
+            .then(res => res.json().then(data => ({status: res.status, data})))
+            .then(res => {
+                if(res.status === 200 && res.data.success) {
+                    window.location.href = '/'; // ЖЕСТКИЙ РЕДИРЕКТ (фикс бага)
+                }
+                else if (res.status === 403 && res.data.banned) {
+                    window.location.reload(); 
+                } 
+                else {
+                    showToast(action === 'login' ? "Неверный логин или пароль!" : "Логин занят!", 'error');
+                }
             });
         }
 
@@ -646,7 +660,6 @@ HTML_CODE = """
             resEl.innerText = '';
             document.getElementById('casino-bet').disabled = true;
             
-            // Крутим монетку
             coinElement.style.transition = 'none';
             coinElement.style.transform = 'rotateY(0deg)';
             
@@ -664,11 +677,10 @@ HTML_CODE = """
                         balance = data.new_balance;
                         document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
                         
-                        // Поворачиваем монетку нужной стороной
                         if (data.result === 'heads') {
-                            coinElement.style.transform = 'rotateY(1800deg)'; // Орел (лицо)
+                            coinElement.style.transform = 'rotateY(1800deg)';
                         } else {
-                            coinElement.style.transform = 'rotateY(1980deg)'; // Решка (оборот)
+                            coinElement.style.transform = 'rotateY(1980deg)';
                         }
 
                         if(data.win) {
@@ -832,7 +844,8 @@ HTML_CODE = """
             let dur = parseInt(document.getElementById('mod-duration').value);
             let reason = document.getElementById('mod-reason').value;
             
-            if(!target || !dur || !reason) return showToast("Заполни все поля!", 'error');
+            if(!target) return showToast("Введи ник!", 'error');
+            if((action === 'mute' || action === 'ban') && (!dur || !reason)) return showToast("Заполни время и причину!", 'error');
             
             fetch('/api/mod/action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: action, target: target, duration: dur, reason: reason}) })
             .then(res => res.json()).then(data => {
@@ -878,6 +891,15 @@ HTML_CODE = """
                 let modHtml = data.mod_rank > 0 ? `<span class="mod-badge" onclick="showModInfo('${data.username}', ${data.mod_rank})">🛡️</span>` : '';
                 
                 document.getElementById('p-nick').innerHTML = `<span class="${nameClass}" ${nameStyle}>${data.username}</span> ${modHtml} ${badgeHtml}`;
+                
+                let rankName = '';
+                if (data.mod_rank === 1) rankName = 'Младший Модератор';
+                else if (data.mod_rank === 2) rankName = 'Старший Модератор';
+                else if (data.mod_rank === 3) rankName = 'Администратор';
+                else if (data.mod_rank === 4) rankName = 'Старший Администратор';
+                else rankName = 'Игрок';
+                document.getElementById('p-modrank').innerText = rankName;
+
                 document.getElementById('p-balance').innerText = Math.floor(data.balance) + ' ₽';
                 document.getElementById('p-coins').innerText = Math.floor(data.mog_coins) + ' 💎';
                 document.getElementById('p-multi').innerText = data.click_power;
@@ -1009,7 +1031,7 @@ HTML_CODE = """
                 if(data.success) { inp.value = ''; cancelReply(); loadChat(); } 
                 else { 
                     showToast(data.error, 'error'); 
-                    lastMessageTime = 0; // Сбрасываем кд, если ошибка
+                    lastMessageTime = 0;
                 } 
             });
         }
@@ -1025,7 +1047,7 @@ HTML_CODE = """
                 inputArea.style.display = 'none'; 
                 muteStatus.style.display = 'block'; 
                 let m = Math.floor(muteTimeLeft / 60); 
-                let s = muteTimeLeft % 60; 
+                let s = Math.floor(muteTimeLeft % 60); // Округление секунд
                 muteStatus.innerText = `Вы заглушены на ${m}м ${s}с`; 
             }
             else { 
@@ -1119,7 +1141,7 @@ def register():
     db.session.commit()
     session.permanent = True
     session['user_id'] = user.id
-    return jsonify({'success': True}), 200
+    return jsonify({'success': True, 'redirect': '/'}), 200
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -1138,7 +1160,7 @@ def login():
                 return jsonify({'banned': True}), 403
         session.permanent = True
         session['user_id'] = user.id
-        return jsonify({'success': True}), 200
+        return jsonify({'success': True, 'redirect': '/'}), 200
     return jsonify({'error': 'Bad auth'}), 401
 
 @app.route('/logout')
@@ -1338,6 +1360,20 @@ def api_mod_action():
         target.ban_duration = f"{duration}m"
         db.session.commit()
         return jsonify({'success': True, 'msg': f'Игрок {target_name} забанен на {duration} мин.'})
+        
+    elif action == 'unmute':
+        target.mute_until = 0
+        db.session.commit()
+        return jsonify({'success': True, 'msg': f'Игрок {target_name} размучен'})
+        
+    elif action == 'unban':
+        if mod.mod_rank < 3:
+            return jsonify({'error': 'Разбанивать могут только Администраторы'}), 403
+        target.is_banned = 0
+        target.ban_until = 0
+        target.ban_reason = ""
+        db.session.commit()
+        return jsonify({'success': True, 'msg': f'Игрок {target_name} разбанен'})
         
     return jsonify({'error': 'Неизвестное действие'}), 400
 
@@ -1594,6 +1630,18 @@ def api_admin_command():
             user.mute_until = time.time() + sec
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Игрок {target} заглушен на {duration}'})
+            
+        elif action == '/unban':
+            user.is_banned = 0
+            user.ban_until = 0
+            user.ban_reason = ""
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Игрок разбанен'})
+            
+        elif action == '/unmute':
+            user.mute_until = 0
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Игрок размучен'})
             
         elif action == '/reset': 
             user.balance = 0
