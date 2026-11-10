@@ -125,17 +125,28 @@ HTML_CODE = """
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&family=Montserrat:wght@400;700&family=Play:wght@400;700&family=Russo+One&display=swap" rel="stylesheet">
     <style>
-        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease; }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease; }
         
-        :root { --bg: #121212; --panel: #1e1e1e; --text: #ffffff; --neon: #00ffcc; --gold: #ffd700; --border: #333; }
-        body.theme-light { --bg: #f0f0f0; --panel: #ffffff; --text: #121212; --neon: #0077ff; --border: #ccc; }
-        body.theme-neon { --bg: #0a001a; --panel: #1a0033; --text: #ffffff; --neon: #ff00ff; --border: #ff00ff; }
-        body.theme-cyber { --bg: #000000; --panel: #111111; --text: #ffff00; --neon: #ff003c; --border: #ff003c; }
-        body.theme-ocean { --bg: #001220; --panel: #003366; --text: #e0f7fa; --neon: #00e5ff; --border: #00e5ff; }
-        body.theme-retro { --bg: #1a1a1a; --panel: #2a2a2a; --text: #00ff00; --neon: #00ff00; --border: #00ff00; }
+        :root { --bg: #121212; --panel: #1e1e1e; --text: #ffffff; --neon: #00ffcc; --gold: #ffd700; --border: #333; --msg-bg: #2b2b2b; --msg-my-bg: #7a5af8; }
+        body.theme-light { --bg: #f0f0f0; --panel: #ffffff; --text: #121212; --neon: #0077ff; --border: #ccc; --msg-bg: #e1e1e1; --msg-my-bg: #0077ff; }
+        body.theme-neon { --bg: #0a001a; --panel: #1a0033; --text: #ffffff; --neon: #ff00ff; --border: #ff00ff; --msg-bg: #2a0050; --msg-my-bg: #ff00ff; }
+        body.theme-cyber { --bg: #000000; --panel: #111111; --text: #ffff00; --neon: #ff003c; --border: #ff003c; --msg-bg: #1a0000; --msg-my-bg: #ff003c; }
+        body.theme-ocean { --bg: #001220; --panel: #003366; --text: #e0f7fa; --neon: #00e5ff; --border: #00e5ff; --msg-bg: #004080; --msg-my-bg: #00e5ff; }
+        body.theme-retro { --bg: #1a1a1a; --panel: #2a2a2a; --text: #00ff00; --neon: #00ff00; --border: #00ff00; --msg-bg: #111; --msg-my-bg: #005500; }
         
         body { background: var(--bg); color: var(--text); font-family: '{{ user.font_family if user else "Montserrat" }}', sans-serif; margin: 0; padding: 10px; user-select: none; text-align: center; overflow-x: hidden; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
         
+        .title-shimmer {
+            background: linear-gradient(90deg, #00ffcc, #ff00ff, #00ffcc);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: shimmer 3s linear infinite;
+            font-weight: 900;
+            letter-spacing: 2px;
+        }
+        @keyframes shimmer { to { background-position: 200% center; } }
+
         .view { display: none; background: var(--panel); padding: 20px; border-radius: 20px; border: 1px solid var(--border); min-height: 400px; width: 100%; max-width: 400px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); opacity: 0; transform: translateY(20px) scale(0.98); }
         .view.active { display: block; opacity: 1; transform: translateY(0) scale(1); animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         @keyframes slideIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
@@ -233,13 +244,31 @@ HTML_CODE = """
         .info-value { color: #ffffff; margin-bottom: 15px; font-family: monospace; font-size: 15px; background: rgba(255,255,255,0.1); padding: 8px 10px; border-radius: 5px; }
         
         #chat-container, #pm-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
-        #chat-messages, #pm-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
-        .chat-msg, .pm-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; }
-        .chat-msg.red-text-msg { color: #ff4444 !important; border-left-color: #ff4444; font-weight: bold; } 
+        #chat-messages, #pm-messages { height: 350px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+        
+        /* СТИЛЬ TELEGRAM ДЛЯ СООБЩЕНИЙ */
+        .msg-bubble { 
+            max-width: 85%; padding: 8px 12px; border-radius: 12px; 
+            position: relative; word-wrap: break-word; touch-action: pan-y;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .msg-bubble.other { background: var(--msg-bg); align-self: flex-start; border-bottom-left-radius: 2px; color: var(--text); }
+        .msg-bubble.self { background: var(--msg-my-bg); align-self: flex-end; border-bottom-right-radius: 2px; color: #fff; }
+        
+        .msg-header { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; font-size: 12px; font-weight: bold; }
+        .msg-header span { cursor: pointer; }
+        .msg-text { line-height: 1.4; font-size: 14px; }
+        .msg-time { font-size: 10px; color: rgba(255,255,255,0.6); float: right; margin-left: 10px; margin-top: 4px; position: relative; top: 2px; }
+        .msg-bubble.other .msg-time { color: #888; }
+        
+        .msg-reply-context { background: rgba(0,0,0,0.2); border-left: 3px solid var(--neon); padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 11px; color: #aaa; }
+        
+        .chat-msg.red-text-msg .msg-text { color: #ff4444 !important; font-weight: bold; } 
+        
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
-        #chat-input-area, #pm-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
+        #chat-input-area, #pm-input-area { display: flex; padding: 10px; gap: 10px; background: var(--panel); border-top: 1px solid var(--border); flex-direction: column;}
         .chat-input-row { display: flex; gap: 8px; width: 100%; align-items: center; }
-        #chat-input, #pm-input { flex: 1; min-width: 0; margin: 0; padding: 12px; border-radius: 20px; }
+        #chat-input, #pm-input { flex: 1; min-width: 0; margin: 0; padding: 12px; border-radius: 20px; background: rgba(0,0,0,0.2); }
         #chat-send, #pm-send { flex-shrink: 0; width: 48px; height: 48px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; }
         
         .casino-box { background: rgba(0,0,0,0.4); border: 2px solid var(--gold); border-radius: 15px; padding: 20px; margin-bottom: 20px;}
@@ -283,7 +312,7 @@ HTML_CODE = """
     {% elif not user %}
         <div id="auth-wrapper">
             <div class="glass-card">
-                <h1 style="color: var(--neon); text-shadow: 0 0 10px var(--neon);">MOGCLICKER</h1>
+                <h1 class="title-shimmer">MOGCLICKER</h1>
                 <div class="auth-tabs">
                     <button class="auth-tab active" onclick="switchAuth('login')">Вход</button>
                     <button class="auth-tab" onclick="switchAuth('reg')">Регистрация</button>
@@ -302,7 +331,7 @@ HTML_CODE = """
         </div>
     
     {% else %}
-        <h1>MOGCLICKER</h1>
+        <h1 class="title-shimmer">MOGCLICKER</h1>
         
         <a href="https://t.me/mogclicker" target="_blank" class="tg-btn">📢 MOGCLICKER в Telegram | Девблог & Общение</a>
         
@@ -312,9 +341,11 @@ HTML_CODE = """
             {% if user.mod_rank > 0 %}
                 <span class="mod-badge" onclick="showModInfo('{{ user.username }}', {{ user.mod_rank }})">🛡️</span>
             {% endif %}
-            {% if user.badge %}
-                <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
-            {% endif %}
+            <span id="header-badge-container" style="display: inline-block;">
+                {% if user.badge %}
+                    <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
+                {% endif %}
+            </span>
             | <span id="ui-mog-coins" style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
             | <span id="ui-dollars" style="color: #00ff00;">{{ user.dollars|int }} $</span>
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
@@ -585,6 +616,18 @@ HTML_CODE = """
             if (dollarsEl) dollarsEl.innerText = formatNum(dollars) + ' $';
         }
 
+        function updateHeaderBadge(badge, color) {
+            let container = document.getElementById('header-badge-container');
+            if (!container) return;
+            if (!badge) {
+                container.innerHTML = '';
+                return;
+            }
+            let badgeClass = color === 'rainbow' ? 'rainbow-text' : '';
+            let badgeStyle = color !== 'rainbow' ? `background: ${color}; color: #000; border-color: ${color};` : '';
+            container.innerHTML = `<span class="badge ${badgeClass}" id="current-badge" style="${badgeStyle}">${badge}</span>`;
+        }
+
         function openModal(id) { document.getElementById(id).classList.add('active'); }
         function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
@@ -783,6 +826,7 @@ HTML_CODE = """
                     btn.innerText = 'Куплено';
                     btn.classList.add('btn-disabled');
                     btn.disabled = true;
+                    if (type === 'badge') updateHeaderBadge(name, '#00ffcc');
                 } 
                 else showToast(data.error, 'error'); 
             });
@@ -793,8 +837,8 @@ HTML_CODE = """
                 let skinsHtml = ''; let badgesHtml = '';
                 data.items.forEach(item => {
                     let btn = item.is_equipped 
-                        ? `<button class="btn-danger" onclick="unequipItem(${item.id})">Снять</button>` 
-                        : `<button onclick="equipItem(${item.id})">Надеть</button>`;
+                        ? `<button class="btn-danger" onclick="unequipItem(${item.id}, '${item.item_type}')">Снять</button>` 
+                        : `<button onclick="equipItem(${item.id}, '${item.item_type}', '${item.item_name}')">Надеть</button>`;
                     let html = `<div class="inv-item">
                                     <h4>${item.item_name}</h4>
                                     <p>${item.item_type === 'skin' ? 'x' + item.item_mult : 'Бейдж'}</p>
@@ -808,17 +852,25 @@ HTML_CODE = """
             });
         }
 
-        function equipItem(id) {
+        function equipItem(id, type, name) {
             fetch('/api/equip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}) })
             .then(res => res.json()).then(data => {
-                if(data.success) { showToast("Экипировано!", 'success'); loadInventory(); }
+                if(data.success) { 
+                    showToast("Экипировано!", 'success'); 
+                    if (type === 'badge') updateHeaderBadge(name, '#00ffcc');
+                    loadInventory(); 
+                }
             });
         }
 
-        function unequipItem(id) {
+        function unequipItem(id, type) {
             fetch('/api/unequip', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: id}) })
             .then(res => res.json()).then(data => {
-                if(data.success) { showToast("Снято!", 'success'); loadInventory(); }
+                if(data.success) { 
+                    showToast("Снято!", 'success'); 
+                    if (type === 'badge') updateHeaderBadge('', '');
+                    loadInventory(); 
+                }
             });
         }
 
@@ -895,10 +947,11 @@ HTML_CODE = """
                 let html = '';
                 data.messages.forEach(m => {
                     let time = new Date(m.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-                    let align = m.sender === "{{ user.username }}" ? "right" : "left";
-                    let color = m.sender === "{{ user.username }}" ? "var(--neon)" : "var(--gold)";
-                    html += `<div class="pm-msg" style="text-align:${align}; border-left:none; border-${align === 'right' ? 'right' : 'left'}:3px solid ${color};">
-                                <span style="font-size:10px; color:#888;">${m.sender}</span> <span style="font-size:10px; color:#888;">${time}</span><br>${m.text}
+                    let isSelf = m.sender === "{{ user.username }}";
+                    let bubbleClass = isSelf ? 'self' : 'other';
+                    
+                    html += `<div class="msg-bubble ${bubbleClass}" onmousedown="startSwipe(event, '${m.sender}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.sender}', '${m.text.replace(/'/g, "\\'")}')">
+                                <div class="msg-text">${m.text}<span class="msg-time">${time}</span></div>
                              </div>`;
                 });
                 container.innerHTML = html;
@@ -1066,29 +1119,63 @@ HTML_CODE = """
                     let badgeStyle = m.badge_color !== 'rainbow' ? `background:${m.badge_color}; color:#000; border-color:${m.badge_color};` : '';
                     let badgeHtml = m.badge ? `<span class="badge ${badgeClass}" style="${badgeStyle}">${m.badge}</span>` : '';
                     let replyHtml = '';
-                    if(m.reply_user) { replyHtml = `<div class="chat-reply-preview" style="display:block; border-left-color:var(--neon); margin-bottom:8px;"><b>${m.reply_user}</b><br>${m.reply_text}</div>`; }
+                    if(m.reply_user) { replyHtml = `<div class="msg-reply-context"><b>${m.reply_user}</b><br>${m.reply_text}</div>`; }
                     
                     let msgClass = m.is_red ? 'red-text-msg' : '';
 
-                    html += `<div class="chat-msg ${msgClass}" onmousedown="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')">
-                                ${replyHtml}<span class="${nameClass}" style="${nameStyle}">${m.username}</span> ${badgeHtml}
-                                <span style="font-size:10px; color:#888; float:right;">${time}</span><br>${m.text}</div>`;
+                    html += `<div class="msg-bubble other ${msgClass}" onmousedown="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.username}', '${m.text.replace(/'/g, "\\'")}')">
+                                <div class="msg-header">
+                                    <span class="${nameClass}" style="${nameStyle}" onclick="openProfile('${m.username}'); event.stopPropagation();">${m.username}</span> ${badgeHtml}
+                                </div>
+                                ${replyHtml}
+                                <div class="msg-text">${m.text}<span class="msg-time">${time}</span></div>
+                             </div>`;
                 });
                 container.innerHTML = html; if(isScrolledToBottom) container.scrollTop = container.scrollHeight;
             });
         }
 
+        // ОБРАБОТКА СВАЙПА С АНИМАЦИЕЙ
         let startX = 0;
+        let currentSwipeElement = null;
+        let currentSwipeUser = "";
+        let currentSwipeText = "";
+
         function startSwipe(e, user, text) {
             startX = e.touches ? e.touches[0].clientX : e.clientX;
-            let element = e.currentTarget;
+            currentSwipeElement = e.currentTarget;
+            currentSwipeUser = user;
+            currentSwipeText = text;
+            
+            currentSwipeElement.style.transition = 'none';
+
+            let moveHandler = function(moveEvent) {
+                let currentX = moveEvent.touches ? moveEvent.touches[0].clientX : moveEvent.clientX;
+                let diff = currentX - startX;
+                if (diff > 0) {
+                    currentSwipeElement.style.transform = `translateX(${diff}px)`;
+                }
+            };
+
             let endHandler = function(endEvent) {
                 let endX = endEvent.changedTouches ? endEvent.changedTouches[0].clientX : endEvent.clientX;
-                if (startX - endX > 50) { setReply(user, text); }
-                element.style.transform = "translateX(0)";
-                element.removeEventListener('touchend', endHandler); element.removeEventListener('mouseup', endHandler);
+                let diff = endX - startX;
+                
+                currentSwipeElement.style.transition = 'transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                currentSwipeElement.style.transform = "translateX(0)";
+                
+                if (diff > 60) { setReply(currentSwipeUser, currentSwipeText); }
+                
+                document.removeEventListener('touchmove', moveHandler);
+                document.removeEventListener('mousemove', moveHandler);
+                document.removeEventListener('touchend', endHandler);
+                document.removeEventListener('mouseup', endHandler);
             };
-            element.addEventListener('touchend', endHandler); element.addEventListener('mouseup', endHandler);
+            
+            document.addEventListener('touchmove', moveHandler, {passive: true});
+            document.addEventListener('mousemove', moveHandler);
+            document.addEventListener('touchend', endHandler);
+            document.addEventListener('mouseup', endHandler);
         }
 
         function setReply(user, text) {
@@ -1174,7 +1261,7 @@ def api_user():
     user = User.query.get(session['user_id'])
     if not user: return jsonify({'error': 'No user'}), 401
     if user.is_banned: return jsonify({'error': 'Banned'}), 403
-    return jsonify({'success': True, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult})
+    return jsonify({'success': True, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult, 'badge': user.badge, 'badge_color': user.badge_color})
 
 @app.route('/api/profile/<username>')
 def api_profile(username):
