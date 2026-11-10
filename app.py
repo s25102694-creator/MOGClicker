@@ -564,7 +564,6 @@ HTML_CODE = """
         let currentAutoPrice = parseInt("{{ auto_price }}");
         let currentProfileTarget = null;
         let currentPmTarget = null;
-        let lastMessageTime = 0;
         let dollarRate = 90.0;
 
         // ФОРМАТИРОВАНИЕ ЧИСЕЛ
@@ -1100,12 +1099,6 @@ HTML_CODE = """
         function cancelReply() { currentReplyUser = ""; currentReplyText = ""; document.getElementById('chat-reply-bar').style.display = 'none'; }
 
         function sendChat() {
-            let now = Date.now();
-            if (now - lastMessageTime < 3000) {
-                return showToast("Подожди 3 секунды!", 'error');
-            }
-            lastMessageTime = now;
-
             let inp = document.getElementById('chat-input');
             if(!inp.value.trim()) return;
             let isRed = false;
@@ -1115,7 +1108,7 @@ HTML_CODE = """
             fetch('/api/chat/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text: inp.value, reply_user: currentReplyUser, reply_text: currentReplyText, is_red: isRed}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { inp.value = ''; cancelReply(); loadChat(); } 
-                else { showToast(data.error, 'error'); lastMessageTime = 0; } 
+                else { showToast(data.error, 'error'); } 
             });
         }
         function handleChatEnter(e) { if(e.key === 'Enter') sendChat(); }
