@@ -26,7 +26,6 @@ app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-# --- МОДЕЛИ ---
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
@@ -222,12 +221,10 @@ HTML_CODE = """
         .casino-buttons button { flex: 1; font-size: 16px; padding: 12px; }
         #casino-result { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: center; height: 30px;}
         
-        /* МОНЕТКА 3D */
-        .coin-wrapper { width: 120px; height: 120px; margin: 20px auto; perspective: 1000px; display: none; }
-        .coin { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 1.5s ease-out; }
-        .coin-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 50%; background: radial-gradient(circle, #ffd700, #b8860b); display: flex; justify-content: center; align-items: center; font-size: 60px; border: 4px solid #8b6508; box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
-        .coin-back { transform: rotateY(180deg); background: radial-gradient(circle, #d4af37, #8b6508); }
-        
+        /* МОНЕТКА (Упрощенная) */
+        .coin-container { height: 120px; margin: 20px auto; display: none; text-align: center; }
+        .coin-visual { font-size: 100px; line-height: 120px; transition: transform 0.1s; display: inline-block; }
+
         /* КОЛЕСО */
         .wheel-container { width: 220px; height: 220px; margin: 20px auto; position: relative; display: none; }
         .wheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--gold); position: relative; background: conic-gradient(#ff4444 0deg 60deg, #444 60deg 120deg, #00ffcc 120deg 180deg, #444 180deg 240deg, #ffd700 240deg 300deg, #444 300deg 360deg); transition: transform 3s cubic-bezier(0.1, 0.7, 0.1, 1); }
@@ -329,11 +326,8 @@ HTML_CODE = """
                 <p>Введи ставку и выбери сторону. Угадаешь — забираешь x2!</p>
                 <input type="number" id="casino-bet" placeholder="Сумма ставки">
                 
-                <div class="coin-wrapper" id="coin-anim">
-                    <div class="coin" id="coin-element">
-                        <div class="coin-face front">🦅</div>
-                        <div class="coin-face back">🪙</div>
-                    </div>
+                <div class="coin-container" id="coin-anim">
+                    <div class="coin-visual" id="coin-element">🪙</div>
                 </div>
 
                 <div class="casino-buttons">
@@ -584,7 +578,7 @@ HTML_CODE = """
             .then(res => res.json().then(data => ({status: res.status, data})))
             .then(res => {
                 if(res.status === 200 && res.data.success) {
-                    window.location.href = '/'; // ЖЕСТКИЙ РЕДИРЕКТ (фикс бага)
+                    window.location.href = '/'; 
                 }
                 else if (res.status === 403 && res.data.banned) {
                     window.location.reload(); 
@@ -660,15 +654,14 @@ HTML_CODE = """
             resEl.innerText = '';
             document.getElementById('casino-bet').disabled = true;
             
-            coinElement.style.transition = 'none';
-            coinElement.style.transform = 'rotateY(0deg)';
-            
-            setTimeout(() => { 
-                coinElement.style.transition = 'transform 1.5s ease-out'; 
-                coinElement.style.transform = 'rotateY(1800deg)'; 
-            }, 50);
+            // Анимация подбрасывания
+            let tossInterval = setInterval(() => {
+                coinElement.innerText = coinElement.innerText === '🪙' ? '🦅' : '🪙';
+                coinElement.style.transform = coinElement.style.transform === 'scaleY(-1)' ? 'scaleY(1)' : 'scaleY(-1)';
+            }, 100);
 
             setTimeout(() => {
+                clearInterval(tossInterval);
                 document.getElementById('casino-bet').disabled = false;
                 
                 fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, choice: choice, mode: 'coin'}) })
@@ -677,11 +670,9 @@ HTML_CODE = """
                         balance = data.new_balance;
                         document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
                         
-                        if (data.result === 'heads') {
-                            coinElement.style.transform = 'rotateY(1800deg)';
-                        } else {
-                            coinElement.style.transform = 'rotateY(1980deg)';
-                        }
+                        // Финальный результат
+                        coinElement.innerText = data.result === 'heads' ? '🦅' : '🪙';
+                        coinElement.style.transform = 'scaleY(1)';
 
                         if(data.win) {
                             resEl.innerText = `ПОБЕДА! Выпало: ${data.result === 'heads' ? 'Орел' : 'Решка'} +${bet} ₽`;
@@ -694,7 +685,7 @@ HTML_CODE = """
                         }
                     } else showToast(data.error, 'error');
                 });
-            }, 1600);
+            }, 1500);
         }
 
         // --- КАЗИНО (КОЛЕСО) ---
@@ -1047,7 +1038,7 @@ HTML_CODE = """
                 inputArea.style.display = 'none'; 
                 muteStatus.style.display = 'block'; 
                 let m = Math.floor(muteTimeLeft / 60); 
-                let s = Math.floor(muteTimeLeft % 60); // Округление секунд
+                let s = Math.floor(muteTimeLeft % 60); 
                 muteStatus.innerText = `Вы заглушены на ${m}м ${s}с`; 
             }
             else { 
@@ -1141,7 +1132,7 @@ def register():
     db.session.commit()
     session.permanent = True
     session['user_id'] = user.id
-    return jsonify({'success': True, 'redirect': '/'}), 200
+    return jsonify({'success': True}), 200
 
 @app.route('/login', methods=['POST'])
 def login():
@@ -1160,7 +1151,7 @@ def login():
                 return jsonify({'banned': True}), 403
         session.permanent = True
         session['user_id'] = user.id
-        return jsonify({'success': True, 'redirect': '/'}), 200
+        return jsonify({'success': True}), 200
     return jsonify({'error': 'Bad auth'}), 401
 
 @app.route('/logout')
