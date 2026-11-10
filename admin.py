@@ -29,7 +29,8 @@ def print_menu():
     print("\033[93m 7.\033[0m Замутить игрока     \033[93m8.\033[0m Выдать MOG Coins")
     print("\033[93m 9.\033[0m Создать промокод    \033[93m10.\033[0m Цвет бейджа")
     print("\033[93m 11.\033[0m Выдать красный чат  \033[93m12.\033[0m Забрать красный чат")
-    print("\033[93m 13.\033[0m Выдать скин (Клик)  \033[93m0.\033[0m Выход")
+    print("\033[93m 13.\033[0m Выдать скин (Клик)  \033[93m14.\033[0m Выдать мод-ранг")
+    print("\033[93m 0.\033[0m Выход")
     print("\033[96m════════════════════════════════════════════\033[0m")
 
 def main():
@@ -38,9 +39,9 @@ def main():
     
     while True:
         try:
-            choice = input("\033[95mВыбери действие (0-13): \033[0m").strip()
+            choice = input("\033[95mВыбери действие (0-14): \033[0m").strip()
             if choice == '0': break
-            if choice not in [str(i) for i in range(14)]:
+            if choice not in [str(i) for i in range(15)]:
                 print("\033[91m❌ Неверный выбор.\033[0m"); continue
 
             if choice == '4':
@@ -95,6 +96,9 @@ def main():
                 skin_name = input("\033[96mНазвание скина (напр. Gold): \033[0m").strip()
                 skin_mult = input("\033[96mМножитель (напр. 2.0): \033[0m").strip()
                 send_command(f"/giveskin {target} {skin_name} {skin_mult}")
+            elif choice == '14':
+                rank = input("\033[96mРанг (1 - Мл.Мод, 2 - Ст.Мод, 3 - Админ, 4 - Ст.Админ, 0 - Снять): \033[0m").strip()
+                send_command(f"/setmod {target} {rank}")
 
         except KeyboardInterrupt: break
         except Exception as e: print(f"\033[91m❌ Ошибка: {e}\033[0m")
