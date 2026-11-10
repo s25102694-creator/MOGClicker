@@ -2,6 +2,7 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 import time
 import re
 import os
+import random
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
@@ -12,17 +13,14 @@ app.permanent_session_lifetime = 86400 * 30
 
 db_url = os.environ.get('DATABASE_URL')
 if not db_url:
-    print("⚠️ ВНИМАНИЕ! DATABASE_URL НЕ НАЙДЕНА! БАЗА БУДЕТ СЛЕТАТЬ!")
     db_url = 'sqlite:///mogclicker.db'
 else:
-    print("✅ ПОДКЛЮЧЕНИЕ К POSTGRESQL УСПЕШНО!")
-
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-if "postgresql://" in db_url:
-    db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    if "sslmode" not in db_url:
-        db_url += "?sslmode=disable"
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    if "postgresql://" in db_url:
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        if "sslmode" not in db_url:
+            db_url += "?sslmode=disable"
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -54,6 +52,8 @@ class User(db.Model):
     mute_until = db.Column(db.Float, default=0.0)
     created_at = db.Column(db.Float, default=time.time)
     can_write_red = db.Column(db.Boolean, default=False)
+    skin = db.Column(db.String(50), default='')
+    skin_mult = db.Column(db.Float, default=1.0)
 
 class Transfer(db.Model):
     __tablename__ = 'transfers'
@@ -82,14 +82,15 @@ class Promocode(db.Model):
 
 with app.app_context():
     db.create_all()
-    # Безопасное добавление новых колонок
     try:
         with db.engine.connect() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS can_write_red BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS skin VARCHAR(50) DEFAULT '';"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS skin_mult FLOAT DEFAULT 1.0;"))
             conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_red BOOLEAN DEFAULT FALSE;"))
             conn.commit()
     except Exception as e:
-        print("БД уже обновлена или ошибка:", e)
+        pass
 
 HTML_CODE = """
 <!DOCTYPE html>
@@ -183,6 +184,7 @@ HTML_CODE = """
         .info-label { color: #0077ff; font-weight: bold; margin-bottom: 5px; font-size: 14px;}
         .info-value { color: #ffffff; margin-bottom: 15px; font-family: monospace; font-size: 15px; background: rgba(255,255,255,0.1); padding: 8px 10px; border-radius: 5px; }
         
+        /* ИСПРАВЛЕННЫЙ ЧАТ */
         #chat-container { width: 100%; max-width: 400px; background: var(--panel); border: 2px solid var(--border); border-radius: 20px; display: flex; flex-direction: column; margin-top: 20px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); overflow: hidden; position: relative;}
         #chat-messages { height: 300px; overflow-y: auto; padding: 15px; text-align: left; font-size: 14px; display: flex; flex-direction: column; gap: 10px; }
         .chat-msg { word-wrap: break-word; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 10px; border-left: 3px solid var(--neon); line-height: 1.4; position: relative; user-select: none; touch-action: pan-y; transition: transform 0.2s;}
@@ -191,15 +193,29 @@ HTML_CODE = """
         #chat-input-area { display: flex; padding: 10px; gap: 10px; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); flex-direction: column;}
         #chat-reply-bar { display: none; background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; margin-bottom: 5px; font-size: 12px; text-align: left; border-left: 3px solid var(--gold); position: relative;}
         .close-reply { position: absolute; right: 5px; top: 5px; cursor: pointer; color: #ff4444; font-weight: bold;}
-        .chat-input-row { display: flex; gap: 10px; width: 100%; align-items: center;}
-        #chat-input { flex: 1; margin: 0; padding: 12px; border-radius: 20px; }
-        #chat-send { width: 50px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; }
         
-        /* Стили для казино */
+        .chat-input-row { display: flex; gap: 8px; width: 100%; align-items: center; }
+        #chat-input { flex: 1; min-width: 0; margin: 0; padding: 12px; border-radius: 20px; }
+        #chat-send { flex-shrink: 0; width: 48px; height: 48px; margin: 0; padding: 0; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 20px; }
+        
+        /* КАЗИНО */
         .casino-box { background: rgba(0,0,0,0.4); border: 2px solid var(--gold); border-radius: 15px; padding: 20px; margin-bottom: 20px;}
         .casino-buttons { display: flex; gap: 10px; margin-top: 15px;}
-        .casino-buttons button { flex: 1; font-size: 18px; padding: 15px;}
+        .casino-buttons button { flex: 1; font-size: 16px; padding: 12px; }
         #casino-result { font-size: 20px; font-weight: bold; margin-top: 15px; text-align: center; height: 30px;}
+        
+        /* АНИМАЦИЯ МОНЕТКИ */
+        .coin-flip-container { width: 100px; height: 100px; margin: 20px auto; perspective: 1000px; display: none; }
+        .coin-flip { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; animation: spinCoin 0.5s linear infinite; }
+        .coin-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 50%; background: radial-gradient(circle, var(--gold), #b8860b); display: flex; justify-content: center; align-items: center; font-size: 40px; font-weight: bold; border: 4px solid #8b6508;}
+        .coin-back { transform: rotateY(180deg); background: radial-gradient(circle, #d4af37, #8b6508); }
+        @keyframes spinCoin { 0% { transform: rotateY(0deg); } 100% { transform: rotateY(360deg); } }
+        
+        /* КОЛЕСО ФОРТУНЫ */
+        .wheel-container { width: 200px; height: 200px; margin: 20px auto; position: relative; display: none; }
+        .wheel { width: 100%; height: 100%; border-radius: 50%; border: 5px solid var(--gold); position: relative; background: conic-gradient(#ff4444 0deg 60deg, #444 60deg 120deg, #00ffcc 120deg 180deg, #444 180deg 240deg, #ffd700 240deg 300deg, #444 300deg 360deg); transition: transform 3s cubic-bezier(0.1, 0.7, 0.1, 1); }
+        .wheel-pointer { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 30px; z-index: 10; filter: drop-shadow(0 0 5px #000); }
+        .wheel-text { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 12px; font-weight: bold; color: #fff; text-shadow: 1px 1px 2px #000;}
     </style>
 </head>
 <body class="theme-{{ user.theme if user else 'dark' }}" style="zoom: {{ user.zoom if user else 100 }}%; font-family: '{{ user.font_family if user else 'Montserrat' }}', sans-serif;">
@@ -258,6 +274,7 @@ HTML_CODE = """
             {% if user.badge %}
                 <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
             {% endif %}
+            {% if user.skin %}<span class="badge" style="background:var(--gold); color:#000;">{{ user.skin }} x{{ user.skin_mult }}</span>{% endif %}
             | <span style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;" data-i18n="logout">Выйти</a>
         </div>
@@ -278,16 +295,46 @@ HTML_CODE = """
         </div>
 
         <div id="view-casino" class="view">
-            <h3 data-i18n="casino_title">Казино "Орёл и Решка"</h3>
-            <div class="casino-box">
+            <h3 data-i18n="casino_title">Казино</h3>
+            
+            <div style="display:flex; gap:5px; margin-bottom: 15px;">
+                <button class="nav-btn active" onclick="switchCasinoMode('coin')" id="mode-coin" style="flex:1;">Монетка</button>
+                <button class="nav-btn" onclick="switchCasinoMode('wheel')" id="mode-wheel" style="flex:1;">Колесо</button>
+            </div>
+
+            <!-- Режим Монетка -->
+            <div id="casino-coin-mode" class="casino-box">
                 <p data-i18n="casino_desc">Введи ставку и выбери сторону. Угадаешь — забираешь x2!</p>
                 <input type="number" id="casino-bet" placeholder="Сумма ставки" data-i18n-placeholder="bet_amount">
+                
+                <div class="coin-flip-container" id="coin-anim">
+                    <div class="coin-flip">
+                        <div class="coin-face">🦅</div>
+                        <div class="coin-face coin-back">🪙</div>
+                    </div>
+                </div>
+
                 <div class="casino-buttons">
                     <button class="btn-main btn-gold" onclick="playCasino('heads')" data-i18n="heads">Орёл 🦅</button>
                     <button class="btn-main btn-gold" onclick="playCasino('tails')" data-i18n="tails">Решка 🪙</button>
                 </div>
-                <div id="casino-result"></div>
             </div>
+
+            <!-- Режим Колесо -->
+            <div id="casino-wheel-mode" class="casino-box" style="display:none;">
+                <p>Введи ставку и крути колесо!</p>
+                <input type="number" id="wheel-bet" placeholder="Сумма ставки" data-i18n-placeholder="bet_amount">
+                
+                <div class="wheel-container" id="wheel-anim">
+                    <div class="wheel-pointer">🔻</div>
+                    <div class="wheel" id="wheel-element"></div>
+                    <div class="wheel-text">x0 x0.5 x2 x1 x5</div>
+                </div>
+
+                <button class="btn-main" onclick="playWheel()" style="margin-top:20px;">Крутить 🎡</button>
+            </div>
+
+            <div id="casino-result"></div>
         </div>
 
         <div id="view-shop" class="view">
@@ -295,6 +342,11 @@ HTML_CODE = """
             <div class="shop-item"><div data-i18n="multi">Мультиклик (x2)</div><button onclick="buyUpgrade('multi')">{{ multi_price }} ₽</button></div>
             <div class="shop-item"><div data-i18n="auto">Автокликер (+1/с)</div><button onclick="buyUpgrade('auto')">{{ auto_price }} ₽</button></div>
             
+            <h3 data-i18n="custom">Скины (Множители)</h3>
+            <div class="shop-item"><div>Iron Skin (x1.5)</div><button onclick="buyCustom('skin', 'Iron', 10000, 1.5)">10,000 ₽</button></div>
+            <div class="shop-item"><div>Gold Skin (x2)</div><button onclick="buyCustom('skin', 'Gold', 50000, 2.0)">50,000 ₽</button></div>
+            <div class="shop-item"><div>Diamond Skin (x5)</div><button onclick="buyCustom('skin', 'Diamond', 500000, 5.0)">500,000 ₽</button></div>
+
             <h3 data-i18n="custom">Кастомизация</h3>
             <div class="shop-item"><div data-i18n="badge_mog">Бейдж "MOG" <br><small style="color: #888; font-size: 10px;">(14 дней)</small></div><button onclick="buyCustom('badge', 'MOG', 5000)">5,000 ₽</button></div>
 
@@ -342,17 +394,17 @@ HTML_CODE = """
                 <div class="chat-input-row">
                     <input type="text" id="chat-input" placeholder="Сообщение в чат..." onkeypress="handleChatEnter(event)" data-i18n-placeholder="chat_placeholder">
                     {% if user.can_write_red %}
-                    <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:12px; color:#ff4444;" title="Красный текст">
+                    <label style="display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; width:30px; flex-shrink:0;" title="Красный текст">
                         <input type="checkbox" id="red-text-toggle" style="width:15px; height:15px; margin:0;">
-                        🔴
                     </label>
                     {% endif %}
-                    <button id="chat-send" class="btn-main" onclick="sendChat()" style="padding:0;">➤</button>
+                    <button id="chat-send" class="btn-main" onclick="sendChat()">➤</button>
                 </div>
             </div>
         </div>
     {% endif %}
 
+    <!-- МОДАЛКИ -->
     <div class="modal" id="profile-modal">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
@@ -379,7 +431,7 @@ HTML_CODE = """
                 top_players: "Топ игроков", loading: "Загрузка...", settings: "Настройки", language: "Язык", theme: "Тема", theme_dark: "Тёмная", theme_light: "Светлая", theme_neon: "Неон", theme_cyber: "Киберпанк", theme_ocean: "Океан", theme_retro: "Ретро", font: "Шрифт", zoom: "Масштаб UI", 
                 promo_code: "Промокод", enter_code: "Введите код...", enter: "Ввод", danger_zone: "Опасная зона!", reset_progress: "Сбросить прогресс", muted: "Вы заглушены", chat_placeholder: "Сообщение в чат...", 
                 profile: "Профиль игрока", nick: "НИК:", balance: "БАЛАНС:", reg_date: "ДАТА РЕГИСТРАЦИИ:", banned_title: "!ВЫ ЗАБАНЕНЫ!", reason: "ПРИЧИНА:", message: "СООБЩЕНИЕ:", banned_for: "ЗАБАНЕН НА:", time_left: "ОСТАЛОСЬ:", 
-                casino_title: "Казино 'Орёл и Решка'", casino_desc: "Введи ставку и выбери сторону. Угадаешь — забираешь x2!", bet_amount: "Сумма ставки", heads: "Орёл 🦅", tails: "Решка 🪙", win: "ПОБЕДА! +", lose: "ПРОИГРЫШ! -", err_log: "Неверный логин или пароль!", err_reg: "Логин занят или есть русские буквы!", err_money: "Недостаточно денег!", err_bet: "Неверная ставка!", success: "Успешно!" 
+                casino_title: "Казино", casino_desc: "Введи ставку и выбери сторону. Угадаешь — забираешь x2!", bet_amount: "Сумма ставки", heads: "Орёл 🦅", tails: "Решка 🪙", win: "ПОБЕДА! +", lose: "ПРОИГРЫШ! -", err_log: "Неверный логин или пароль!", err_reg: "Логин занят или есть русские буквы!", err_money: "Недостаточно денег!", err_bet: "Неверная ставка!", success: "Успешно!" 
             },
             en: { 
                 login: "Login", register: "Register", username: "Username", username_eng: "Username (eng only)", password: "Password", btn_login: "Login", btn_register: "Create Account", hello: "Hello", logout: "Logout", 
@@ -389,13 +441,14 @@ HTML_CODE = """
                 top_players: "Top Players", loading: "Loading...", settings: "Settings", language: "Language", theme: "Theme", theme_dark: "Dark", theme_light: "Light", theme_neon: "Neon", theme_cyber: "Cyberpunk", theme_ocean: "Ocean", theme_retro: "Retro", font: "Font", zoom: "UI Zoom", 
                 promo_code: "Promocode", enter_code: "Enter code...", enter: "Enter", danger_zone: "Danger zone!", reset_progress: "Reset Progress", muted: "You are muted", chat_placeholder: "Message to chat...", 
                 profile: "Player Profile", nick: "NICK:", balance: "BALANCE:", reg_date: "REG DATE:", banned_title: "!YOU ARE BANNED!", reason: "REASON:", message: "MESSAGE:", banned_for: "BANNED FOR:", time_left: "TIME LEFT:", 
-                casino_title: "Casino 'Heads or Tails'", casino_desc: "Enter bet and choose side. Guess right — get x2!", bet_amount: "Bet Amount", heads: "Heads 🦅", tails: "Tails 🪙", win: "WIN! +", lose: "LOSE! -", err_log: "Wrong login or password!", err_reg: "Login taken or has cyrillic!", err_money: "Not enough money!", err_bet: "Invalid bet!", success: "Success!" 
+                casino_title: "Casino", casino_desc: "Enter bet and choose side. Guess right — get x2!", bet_amount: "Bet Amount", heads: "Heads 🦅", tails: "Tails 🪙", win: "WIN! +", lose: "LOSE! -", err_log: "Wrong login or password!", err_reg: "Login taken or has cyrillic!", err_money: "Not enough money!", err_bet: "Invalid bet!", success: "Success!" 
             }
         };
 
         const currentLang = "{{ user.lang if user else 'ru' }}";
         let balance = parseFloat("{{ user.balance|default(0, true) }}");
         let clickPower = parseInt("{{ user.click_power|default(1, true) }}");
+        let skinMult = parseFloat("{{ user.skin_mult|default(1, true) }}");
         let autoIncome = parseFloat("{{ user.auto_income|default(0, true) }}");
         let muteUntil = parseFloat("{{ user.mute_until|default(0, true) }}");
 
@@ -464,6 +517,14 @@ HTML_CODE = """
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
         }
 
+        function switchCasinoMode(mode) {
+            document.getElementById('casino-coin-mode').style.display = mode === 'coin' ? 'block' : 'none';
+            document.getElementById('casino-wheel-mode').style.display = mode === 'wheel' ? 'block' : 'none';
+            document.getElementById('mode-coin').classList.toggle('active', mode === 'coin');
+            document.getElementById('mode-wheel').classList.toggle('active', mode === 'wheel');
+            document.getElementById('casino-result').innerText = '';
+        }
+
         setInterval(() => {
             fetch('/api/user').then(r => { if(r.status === 403) { window.location.reload(); return; } return r.json(); }).then(data => {
                 if(data && data.success) {
@@ -483,40 +544,99 @@ HTML_CODE = """
         }, 1000);
 
         function clickCoin(e) {
-            initAudio(); balance += clickPower;
+            initAudio(); 
+            let addAmount = clickPower * skinMult;
+            balance += addAmount;
             const scoreEl = document.getElementById('score');
             scoreEl.innerText = Math.floor(balance) + ' ₽'; scoreEl.style.transform = "scale(1.1)";
             setTimeout(() => scoreEl.style.transform = "scale(1)", 100); playSound('click');
-            const el = document.createElement('div'); el.className = 'floating'; el.innerText = '+' + clickPower + ' ₽';
+            const el = document.createElement('div'); el.className = 'floating'; el.innerText = '+' + addAmount + ' ₽';
             el.style.left = (e.clientX - 20) + 'px'; el.style.top = (e.clientY - 40) + 'px';
             document.body.appendChild(el); setTimeout(() => el.remove(), 800);
             fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: clickPower}) })
             .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
         }
 
-        // КАЗИНО
+        // КАЗИНО МОНЕТКА
         function playCasino(choice) {
             let bet = parseFloat(document.getElementById('casino-bet').value);
             if(!bet || bet <= 0) return showToast(i18n[currentLang].err_bet, 'error');
             if(balance < bet) return showToast(i18n[currentLang].err_money, 'error');
             
-            fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, choice: choice}) })
-            .then(res => res.json()).then(data => {
-                if(data.success) {
-                    balance = data.new_balance;
-                    document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
-                    let resEl = document.getElementById('casino-result');
-                    if(data.win) {
-                        resEl.innerText = i18n[currentLang].win + bet + ' ₽';
-                        resEl.style.color = 'var(--neon)';
-                        playSound('success');
-                    } else {
-                        resEl.innerText = i18n[currentLang].lose + bet + ' ₽';
-                        resEl.style.color = '#ff4444';
-                        playSound('error');
-                    }
-                } else showToast(data.error, 'error');
-            });
+            document.getElementById('coin-anim').style.display = 'block';
+            document.getElementById('casino-result').innerText = '';
+            document.getElementById('casino-bet').disabled = true;
+
+            setTimeout(() => {
+                document.getElementById('coin-anim').style.display = 'none';
+                document.getElementById('casino-bet').disabled = false;
+                
+                fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, choice: choice, mode: 'coin'}) })
+                .then(res => res.json()).then(data => {
+                    if(data.success) {
+                        balance = data.new_balance;
+                        document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+                        let resEl = document.getElementById('casino-result');
+                        if(data.win) {
+                            resEl.innerText = i18n[currentLang].win + bet + ' ₽';
+                            resEl.style.color = 'var(--neon)';
+                            playSound('success');
+                        } else {
+                            resEl.innerText = i18n[currentLang].lose + bet + ' ₽';
+                            resEl.style.color = '#ff4444';
+                            playSound('error');
+                        }
+                    } else showToast(data.error, 'error');
+                });
+            }, 1500);
+        }
+
+        // КАЗИНО КОЛЕСО
+        function playWheel() {
+            let bet = parseFloat(document.getElementById('wheel-bet').value);
+            if(!bet || bet <= 0) return showToast(i18n[currentLang].err_bet, 'error');
+            if(balance < bet) return showToast(i18n[currentLang].err_money, 'error');
+
+            document.getElementById('wheel-anim').style.display = 'block';
+            document.getElementById('casino-result').innerText = '';
+            document.getElementById('wheel-bet').disabled = true;
+            let wheel = document.getElementById('wheel-element');
+            
+            // Случайный угол для анимации (от 3 до 5 полных оборотов + случайный сектор)
+            let spinDegrees = 1080 + Math.floor(Math.random() * 360);
+            wheel.style.transform = `rotate(${spinDegrees}deg)`;
+
+            setTimeout(() => {
+                fetch('/api/casino/bet', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({bet: bet, mode: 'wheel'}) })
+                .then(res => res.json()).then(data => {
+                    document.getElementById('wheel-bet').disabled = false;
+                    if(data.success) {
+                        balance = data.new_balance;
+                        document.getElementById('score').innerText = Math.floor(balance) + ' ₽';
+                        let resEl = document.getElementById('casino-result');
+                        
+                        if(data.mult > 1) {
+                            resEl.innerText = `ВЫИГРЫШ x${data.mult}! +${bet * data.mult} ₽`;
+                            resEl.style.color = 'var(--neon)';
+                            playSound('success');
+                        } else if(data.mult === 0) {
+                            resEl.innerText = `x0. ПРОИГРЫШ! -${bet} ₽`;
+                            resEl.style.color = '#ff4444';
+                            playSound('error');
+                        } else if(data.mult === 1) {
+                            resEl.innerText = `x1. ВОЗВРАТ.`;
+                            resEl.style.color = '#fff';
+                            playSound('success');
+                        } else {
+                            resEl.innerText = `x${data.mult}. ПРОИГРЫШ! -${bet - (bet * data.mult)} ₽`;
+                            resEl.style.color = '#ff4444';
+                            playSound('error');
+                        }
+                        
+                        setTimeout(() => { wheel.style.transition = 'none'; wheel.style.transform = 'rotate(0deg)'; }, 2000);
+                    } else showToast(data.error, 'error');
+                });
+            }, 3000);
         }
 
         function buyUpgrade(type) {
@@ -527,28 +647,14 @@ HTML_CODE = """
             });
         }
 
-        function buyCustom(type, value, price) {
-            fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type, value, price}) })
+        function buyCustom(type, value, price, mult) {
+            fetch('/api/buy_custom', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({type, value, price, mult}) })
             .then(res => res.json()).then(data => { 
                 if(data.success) { 
                     showToast(i18n[currentLang].success, 'success'); 
                     balance = data.new_balance; 
                     document.getElementById('score').innerText = Math.floor(balance) + ' ₽'; 
-                    if (type === 'badge') {
-                        let badgeEl = document.getElementById('current-badge');
-                        if(!badgeEl) {
-                            let nameEl = document.getElementById('current-username');
-                            let span = document.createElement('span');
-                            span.id = 'current-badge';
-                            span.className = 'badge';
-                            span.innerText = value;
-                            nameEl.parentNode.insertBefore(span, nameEl.nextSibling);
-                        } else {
-                            badgeEl.innerText = value;
-                            badgeEl.className = 'badge';
-                            badgeEl.style.display = 'inline-block';
-                        }
-                    }
+                    setTimeout(() => location.reload(), 1000); 
                 } 
                 else showToast(i18n[currentLang].err_money, 'error'); 
             });
@@ -756,9 +862,10 @@ def index():
             user.badge_expire = 0
             db.session.commit()
 
-    multi_price = 50 * (2 ** (user.click_power - 1)) if user and not user.is_banned else 50
-    auto_price = 200 * (3 ** user.auto_income) if user and not user.is_banned else 200
-    return render_template_string(HTML_CODE, user=user, multi_price=int(multi_price), auto_price=int(auto_price), remaining_seconds=remaining_seconds)
+    # НОВАЯ ФОРМУЛА ЦЕН (1.3 вместо 2)
+    multi_price = int(100 * (1.3 ** (user.click_power - 1))) if user and not user.is_banned else 100
+    auto_price = int(250 * (1.3 ** user.auto_income)) if user and not user.is_banned else 250
+    return render_template_string(HTML_CODE, user=user, multi_price=multi_price, auto_price=auto_price, remaining_seconds=remaining_seconds)
 
 @app.route('/api/user')
 def api_user():
@@ -839,7 +946,9 @@ def api_click():
         db.session.commit()
         session.pop('user_id', None)
         return jsonify({'error': 'banned_deleted'}), 403
-    user.balance += request.json.get('amount', 1)
+    # Умножаем на скин
+    amount = request.json.get('amount', 1) * user.skin_mult
+    user.balance += amount
     db.session.commit()
     return jsonify({'success': True})
 
@@ -849,23 +958,43 @@ def api_casino_bet():
         return jsonify({'error': 'Auth'}), 401
     data = request.json
     bet = float(data.get('bet', 0))
-    choice = data.get('choice')
+    mode = data.get('mode', 'coin')
     
     user = User.query.get(session['user_id'])
     if not user or bet <= 0 or user.balance < bet:
         return jsonify({'error': 'Invalid bet'}), 400
         
-    import random
-    result = random.choice(['heads', 'tails'])
-    win = (result == choice)
-    
-    if win:
-        user.balance += bet
-    else:
-        user.balance -= bet
+    if mode == 'coin':
+        choice = data.get('choice')
+        result = random.choice(['heads', 'tails'])
+        win = (result == choice)
+        if win:
+            user.balance += bet
+        else:
+            user.balance -= bet
+        db.session.commit()
+        return jsonify({'success': True, 'win': win, 'new_balance': user.balance})
         
-    db.session.commit()
-    return jsonify({'success': True, 'win': win, 'new_balance': user.balance})
+    elif mode == 'wheel':
+        # Шансы: x0 (30%), x0.5 (30%), x1 (20%), x2 (15%), x5 (5%)
+        weights = [(0, 30), (0.5, 30), (1, 20), (2, 15), (5, 5)]
+        total = sum(w[1] for w in weights)
+        r = random.randint(1, total)
+        current = 0
+        mult = 1
+        for val, weight in weights:
+            current += weight
+            if r <= current:
+                mult = val
+                break
+                
+        win_amount = bet * mult
+        user.balance -= bet
+        user.balance += win_amount
+        db.session.commit()
+        return jsonify({'success': True, 'mult': mult, 'new_balance': user.balance})
+
+    return jsonify({'error': 'Invalid mode'}), 400
 
 @app.route('/api/buy', methods=['POST'])
 def api_buy():
@@ -874,14 +1003,14 @@ def api_buy():
     type = request.json.get('type')
     user = User.query.get(session['user_id'])
     if type == 'multi':
-        price = 50 * (2 ** (user.click_power - 1))
+        price = int(100 * (1.3 ** (user.click_power - 1)))
         if user.balance >= price:
             user.balance -= price
             user.click_power *= 2
             db.session.commit()
             return jsonify({'success': True, 'new_balance': user.balance})
     elif type == 'auto':
-        price = 200 * (3 ** user.auto_income)
+        price = int(250 * (1.3 ** user.auto_income))
         if user.balance >= price:
             user.balance -= price
             user.auto_income += 1
@@ -901,6 +1030,10 @@ def api_buy_custom():
             user.badge = data['value']
             user.badge_color = '#00ffcc'
             user.badge_expire = time.time() + 14 * 86400
+        elif data['type'] == 'skin':
+            user.balance -= data['price']
+            user.skin = data['value']
+            user.skin_mult = data.get('mult', 1.0)
         db.session.commit()
         return jsonify({'success': True, 'new_balance': user.balance})
     return jsonify({'error': 'No money'}), 400
@@ -938,6 +1071,8 @@ def api_reset():
     user.color = '#ffffff'
     user.badge = ''
     user.badge_color = '#ffffff'
+    user.skin = ''
+    user.skin_mult = 1.0
     db.session.commit()
     return jsonify({'success': True})
 
@@ -1012,7 +1147,6 @@ def api_chat_send():
     if user.mute_until > time.time(): 
         return jsonify({'error': 'Вы заглушены!'}), 403
     
-    # Проверка на красный текст
     is_red = data.get('is_red', False) and user.can_write_red
     
     msg = ChatMessage(username=user.username, text=text[:100], timestamp=time.time(), reply_user=data.get('reply_user', ''), reply_text=data.get('reply_text', '')[:50], is_red=is_red)
@@ -1117,6 +1251,14 @@ def api_admin_command():
             user.can_write_red = False
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Доступ к красному чату забран'})
+
+        elif action == '/giveskin' and len(parts) >= 4:
+            skin_name = parts[2]
+            skin_mult = float(parts[3])
+            user.skin = skin_name
+            user.skin_mult = skin_mult
+            db.session.commit()
+            return jsonify({'success': True, 'msg': f'Скин {skin_name} (x{skin_mult}) выдан'})
             
         elif action == '/ban' and len(parts) >= 3:
             duration = parts[2]
@@ -1145,6 +1287,8 @@ def api_admin_command():
             user.balance = 0
             user.click_power = 1
             user.auto_income = 0
+            user.skin = ''
+            user.skin_mult = 1.0
             db.session.commit()
             return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
             
