@@ -190,6 +190,23 @@ HTML_CODE = """
         .rainbow-text { background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8f00ff, #ff0000); background-size: 200% auto; -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: bold; animation: rainbowAnim 3s linear infinite; }
         @keyframes rainbowAnim { to { background-position: 200% center; } }
 
+        .tg-btn {
+            display: inline-block;
+            background: linear-gradient(90deg, #0088cc, #00bfff);
+            color: #fff !important;
+            text-decoration: none;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 15px;
+            box-shadow: 0 0 15px rgba(0, 136, 204, 0.4);
+            border: 1px solid #00bfff;
+            cursor: pointer;
+        }
+        .tg-btn:hover { transform: translateY(-2px) scale(1.02); box-shadow: 0 0 25px rgba(0, 136, 204, 0.8); }
+        .tg-btn:active { transform: scale(0.95); }
+
         #toast-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; display: flex; flex-direction: column-reverse; gap: 10px; width: 80%; max-width: 300px; pointer-events: none;}
         .toast { background: var(--panel); color: var(--text); padding: 15px; border-radius: 10px; border-left: 5px solid var(--neon); box-shadow: 0 5px 15px rgba(0,0,0,0.5); animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards, fadeOut 0.3s 2.7s forwards; font-weight: bold; text-align: left; }
         .toast.error { border-left-color: #ff4444; }
@@ -286,6 +303,9 @@ HTML_CODE = """
     
     {% else %}
         <h1>MOGCLICKER</h1>
+        
+        <a href="https://t.me/mogclicker" target="_blank" class="tg-btn">📢 MOGCLICKER в Telegram | Девблог & Общение</a>
+        
         <div style="font-size: 16px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap;">
             <span>Привет</span>, 
             <span id="current-username" class="{% if user.color == 'rainbow' %}rainbow-text{% endif %}" style="color: {{ user.color if user.color != 'rainbow' else '' }}; font-weight: bold;">{{ user.username }}</span>
@@ -1233,7 +1253,6 @@ def api_pm_list():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
     
-    # ИСПРАВЛЕНО: Заменен func.if_ (которого нет в PostgreSQL) на case
     target_col = case(
         (PrivateMessage.sender == user.username, PrivateMessage.receiver),
         else_=PrivateMessage.sender
