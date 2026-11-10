@@ -6,7 +6,7 @@ import random
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
+from sqlalchemy import text, case, or_, and_, func
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'mog_secret_key_123')
@@ -241,7 +241,6 @@ HTML_CODE = """
         
         .mod-action-box { background: rgba(255, 68, 68, 0.1); border: 1px solid #ff4444; border-radius: 10px; padding: 15px; margin-bottom: 15px; }
         
-        /* ОБМЕННИК */
         .exchange-box { background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 15px; padding: 15px; margin-bottom: 15px; text-align: left;}
         .exchange-box h4 { margin-top: 0; color: var(--gold); }
         .hologram { 
@@ -296,8 +295,8 @@ HTML_CODE = """
             {% if user.badge %}
                 <span class="badge {% if user.badge_color == 'rainbow' %}rainbow-text{% endif %}" id="current-badge" style="{% if user.badge_color != 'rainbow' %}background: {{ user.badge_color }}; color: #000; border-color: {{ user.badge_color }};{% endif %}">{{ user.badge }}</span>
             {% endif %}
-            | <span style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
-            | <span style="color: #00ff00;">{{ user.dollars|int }} $</span>
+            | <span id="ui-mog-coins" style="color: var(--neon);">{{ user.mog_coins|int }} 💎</span>
+            | <span id="ui-dollars" style="color: #00ff00;">{{ user.dollars|int }} $</span>
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
         </div>
 
@@ -557,7 +556,14 @@ HTML_CODE = """
         }
 
         function updateUI() {
-            document.getElementById('score').innerText = formatNum(balance) + ' ₽';
+            let scoreEl = document.getElementById('score');
+            if (scoreEl) scoreEl.innerText = formatNum(balance) + ' ₽';
+            
+            let coinsEl = document.getElementById('ui-mog-coins');
+            if (coinsEl) coinsEl.innerText = formatNum(mogCoins) + ' 💎';
+            
+            let dollarsEl = document.getElementById('ui-dollars');
+            if (dollarsEl) dollarsEl.innerText = formatNum(dollars) + ' $';
         }
 
         function openModal(id) { document.getElementById(id).classList.add('active'); }
@@ -639,10 +645,21 @@ HTML_CODE = """
         setInterval(() => {
             fetch('/api/user').then(r => { if(r.status === 403) { window.location.reload(); return; } return r.json(); }).then(data => {
                 if(data && data.success) {
-                    if(data.balance !== balance) { balance = data.balance; updateUI(); }
-                    if(data.dollars !== dollars) { dollars = data.dollars; }
-                    clickPower = data.click_power; autoIncome = data.auto_income; muteUntil = data.mute_until; skinMult = data.skin_mult;
-                    document.getElementById('ui-click-power').innerText = clickPower; document.getElementById('ui-auto-income').innerText = autoIncome;
+                    balance = data.balance;
+                    dollars = data.dollars;
+                    mogCoins = data.mog_coins;
+                    clickPower = data.click_power; 
+                    autoIncome = data.auto_income; 
+                    muteUntil = data.mute_until; 
+                    skinMult = data.skin_mult;
+                    
+                    updateUI();
+                    
+                    let cpEl = document.getElementById('ui-click-power');
+                    if (cpEl) cpEl.innerText = clickPower;
+                    let aiEl = document.getElementById('ui-auto-income');
+                    if (aiEl) aiEl.innerText = autoIncome;
+                    
                     checkMuteStatus();
                 }
             }).catch(()=>{});
@@ -816,10 +833,10 @@ HTML_CODE = """
 
         // ЛС (ПРИВАТНЫЕ СООБЩЕНИЯ)
         function messageUserFromProfile() {
-            let target = document.getElementById('p-nick').innerText.split(' ')[0]; // грубо, но работает
+            if (!currentProfileTarget) return;
             closeModal('profile-modal');
             switchTab('pm');
-            openPmChat(target);
+            openPmChat(currentProfileTarget);
         }
 
         function loadPmChats() {
@@ -1216,10 +1233,15 @@ def api_pm_list():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
     
-    from sqlalchemy import or_, and_, func
-    chats = db.session.query(
-        func.distinct(func.if_(PrivateMessage.sender == user.username, PrivateMessage.receiver, PrivateMessage.sender))
-    ).filter(or_(PrivateMessage.sender == user.username, PrivateMessage.receiver == user.username)).all()
+    # ИСПРАВЛЕНО: Заменен func.if_ (которого нет в PostgreSQL) на case
+    target_col = case(
+        (PrivateMessage.sender == user.username, PrivateMessage.receiver),
+        else_=PrivateMessage.sender
+    ).label('target')
+    
+    chats = db.session.query(target_col).filter(
+        or_(PrivateMessage.sender == user.username, PrivateMessage.receiver == user.username)
+    ).distinct().all()
     
     res = []
     for chat in chats:
@@ -1238,7 +1260,6 @@ def api_pm_get():
     user = User.query.get(session['user_id'])
     target = request.args.get('target')
     
-    from sqlalchemy import or_, and_
     msgs = PrivateMessage.query.filter(or_(
         and_(PrivateMessage.sender == user.username, PrivateMessage.receiver == target),
         and_(PrivateMessage.sender == target, PrivateMessage.receiver == user.username)
@@ -1450,7 +1471,6 @@ def api_transfer():
 def api_transfers_top():
     period = request.args.get('period', 'all'); now = time.time()
     start = now - 86400 if period == 'day' else (now - 2592000 if period == 'month' else 0)
-    from sqlalchemy import func
     rows = db.session.query(Transfer.sender, func.sum(Transfer.amount).label('total')).filter(Transfer.timestamp >= start).group_by(Transfer.sender).order_by(func.sum(Transfer.amount).desc()).limit(10).all()
     return jsonify([{'sender': r.sender, 'total': r.total} for r in rows])
 
