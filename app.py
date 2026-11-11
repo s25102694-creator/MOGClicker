@@ -57,6 +57,9 @@ class User(db.Model):
     skin_mult = db.Column(db.Float, default=1.0)
     mod_rank = db.Column(db.Integer, default=0) 
     privacy_pm = db.Column(db.Boolean, default=True)
+    # НОВЫЕ ПОЛЯ ДЛЯ РАНГОВ
+    clicks = db.Column(db.Integer, default=0)
+    rank = db.Column(db.Integer, default=0)
 
 class Inventory(db.Model):
     __tablename__ = 'inventory'
@@ -91,6 +94,7 @@ class PrivateMessage(db.Model):
     receiver = db.Column(db.String(80))
     text = db.Column(db.String(200))
     timestamp = db.Column(db.Float)
+    is_red = db.Column(db.Boolean, default=False) # ДОБАВИЛИ КРАСНЫЙ ТЕКСТ В ЛС
 
 class Promocode(db.Model):
     __tablename__ = 'promocodes'
@@ -110,6 +114,10 @@ with app.app_context():
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS dollars FLOAT DEFAULT 0.0;"))
             conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_pm BOOLEAN DEFAULT TRUE;"))
             conn.execute(text("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS is_red BOOLEAN DEFAULT FALSE;"))
+            conn.execute(text("ALTER TABLE private_messages ADD COLUMN IF NOT EXISTS is_red BOOLEAN DEFAULT FALSE;"))
+            # НОВЫЕ КОЛОНКИ
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS clicks INTEGER DEFAULT 0;"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS rank INTEGER DEFAULT 0;"))
             conn.commit()
     except Exception:
         pass
@@ -206,6 +214,13 @@ HTML_CODE = """
         
         .stats-box { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 15px; font-size: 14px; display: flex; justify-content: space-around;}
         
+        /* СТИЛЬ РАНГОВ */
+        .rank-box { background: rgba(0,0,0,0.4); border: 1px solid var(--neon); border-radius: 15px; padding: 15px; margin-bottom: 15px; }
+        .rank-title { color: var(--neon); font-weight: bold; font-size: 16px; margin-bottom: 8px; text-transform: uppercase; text-shadow: 0 0 10px var(--neon); }
+        .progress-bg { background: #333; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 5px; }
+        .progress-fill { background: linear-gradient(90deg, var(--neon), #00ffaa); height: 100%; width: 0%; transition: width 0.3s; }
+        .progress-text { font-size: 12px; color: #aaa; }
+
         .shop-item { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 15px; margin-bottom: 10px; border-radius: 15px; border: 1px solid var(--border); }
         .shop-item:hover { border-color: var(--neon); transform: translateX(5px); box-shadow: 0 0 10px rgba(0,255,204,0.1); }
         .shop-item button { background: var(--neon); color: #000; border: none; padding: 10px 15px; border-radius: 10px; cursor: pointer; font-weight: bold; }
@@ -299,7 +314,8 @@ HTML_CODE = """
         
         .msg-reply-context { background: rgba(0,0,0,0.2); border-left: 3px solid var(--neon); padding: 4px 8px; border-radius: 4px; margin-bottom: 4px; font-size: 11px; color: #aaa; }
         
-        .chat-msg.red-text-msg .msg-text { color: #ff4444 !important; font-weight: bold; } 
+        /* ФИКС КРАСНОГО ТЕКСТА */
+        .red-text-msg .msg-text { color: #ff4444 !important; font-weight: bold; } 
         
         .chat-reply-preview { font-size: 11px; color: #888; border-left: 2px solid #555; padding-left: 5px; margin-bottom: 5px; display: none; }
         #chat-input-area, #pm-input-area { display: flex; padding: 10px; gap: 10px; background: var(--panel); border-top: 1px solid var(--border); flex-direction: column;}
@@ -374,6 +390,9 @@ HTML_CODE = """
         <div style="font-size: 16px; margin-bottom: 15px; display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap;">
             <span>Привет</span>, 
             <span id="current-username" class="{% if user.color == 'rainbow' %}rainbow-text{% endif %}" style="color: {{ user.color if user.color != 'rainbow' else '' }}; font-weight: bold;">{{ user.username }}</span>
+            
+            <span id="user-rank-display" class="badge" style="background: #8f00ff; color: #fff; border-color: #8f00ff; cursor: default;">{{ rank_names.get(user.rank, '') }}</span>
+            
             {% if user.mod_rank > 0 %}
                 <span class="mod-badge" onclick="showModInfo('{{ user.username }}', {{ user.mod_rank }})">🛡️</span>
             {% endif %}
@@ -405,6 +424,22 @@ HTML_CODE = """
 
         <div id="view-game" class="view active">
             <div id="score">{{ user.balance|int }}</div>
+            
+            <!-- БЛОК РАНГА -->
+            <div class="rank-box">
+                <div class="rank-title">Ранг: <span id="ui-rank-name">{{ rank_names.get(user.rank, 'Новичок') }}</span></div>
+                <div class="progress-bg">
+                    <div class="progress-fill" id="rank-progress-bar" style="width: {{ (user.clicks / rank_thresholds.get(user.rank, 999999) * 100) if rank_thresholds.get(user.rank) else 100 }}%;"></div>
+                </div>
+                <div class="progress-text" id="rank-progress-text">
+                    {% if rank_thresholds.get(user.rank) %}
+                        {{ user.clicks }} / {{ rank_thresholds.get(user.rank) }} кликов до повышения
+                    {% else %}
+                        МАКСИМАЛЬНЫЙ РАНГ
+                    {% endif %}
+                </div>
+            </div>
+
             <div id="coin" onclick="clickCoin(event)">₽</div>
             
             <div class="stats-box">
@@ -501,6 +536,11 @@ HTML_CODE = """
                 <div id="pm-input-area">
                     <div class="chat-input-row">
                         <input type="text" id="pm-input" placeholder="Сообщение..." onkeypress="handlePmEnter(event)">
+                        {% if user.can_write_red %}
+                        <label style="display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; width:30px; flex-shrink:0;" title="Красный текст">
+                            <input type="checkbox" id="pm-red-text-toggle" style="width:15px; height:15px; margin:0;">
+                        </label>
+                        {% endif %}
                         <button id="pm-send" class="btn-main" onclick="sendPm()">➤</button>
                     </div>
                 </div>
@@ -594,6 +634,7 @@ HTML_CODE = """
             <span class="close-btn" onclick="closeModal('profile-modal')">×</span>
             <div class="modal-title">Профиль игрока</div>
             <div class="info-label">НИК:</div><div class="info-value" id="p-nick"></div>
+            <div class="info-label">РАНГ:</div><div class="info-value" id="p-rank" style="color: #8f00ff; font-weight: bold;"></div>
             <div class="info-label">ДОЛЖНОСТЬ:</div><div class="info-value" id="p-modrank" style="color: var(--neon);"></div>
             <div class="info-label">БАЛАНС:</div><div class="info-value" id="p-balance" style="color: var(--gold); font-weight: bold;"></div>
             <div class="info-label">ДОЛЛАРЫ:</div><div class="info-value" id="p-dollars" style="color: #00ff00; font-weight: bold;"></div>
@@ -633,8 +674,26 @@ HTML_CODE = """
         let currentProfileTarget = null;
         let currentPmTarget = null;
         let dollarRate = 90.0;
+        
+        let userClicks = parseInt("{{ user.clicks|default(0, true) }}");
+        let userRank = parseInt("{{ user.rank|default(0, true) }}");
 
-        // ПЕРЕВОДЫ ДЛЯ НАСТРОЕК
+        const rankNames = {
+            0: "Новичок",
+            1: "sub 3",
+            2: "sub 5",
+            3: "ltn",
+            4: "mtn",
+            5: "htn",
+            6: "CHAD",
+            7: "True Adam",
+            8: "True MoggClicker"
+        };
+        
+        const rankThresholds = {
+            0: 50, 1: 200, 2: 500, 3: 550, 4: 750, 5: 1000, 6: 2000, 7: 10000
+        };
+
         const themeNames = { dark: 'Тёмная', light: 'Светлая', neon: 'Неон', cyber: 'Киберпанк', ocean: 'Океан', retro: 'Ретро' };
         const langNames = { ru: 'Русский', en: 'English' };
         
@@ -651,7 +710,6 @@ HTML_CODE = """
             if(fontEl) fontEl.innerText = currentUserFont;
         }
 
-        // ФОРМАТИРОВАНИЕ ЧИСЕЛ
         function formatNum(num) {
             if (num >= 1e9) return (num / 1e9).toFixed(1).replace(/\\.0$/, '') + 'B';
             if (num >= 1e6) return (num / 1e6).toFixed(1).replace(/\\.0$/, '') + 'M';
@@ -668,6 +726,26 @@ HTML_CODE = """
             
             let dollarsEl = document.getElementById('ui-dollars');
             if (dollarsEl) dollarsEl.innerText = formatNum(dollars) + ' $';
+        }
+
+        function updateRankUI() {
+            let rankNameEl = document.getElementById('ui-rank-name');
+            let rankDisplayEl = document.getElementById('user-rank-display');
+            let rankBar = document.getElementById('rank-progress-bar');
+            let rankText = document.getElementById('rank-progress-text');
+            
+            if(rankNameEl) rankNameEl.innerText = rankNames[userRank];
+            if(rankDisplayEl) rankDisplayEl.innerText = rankNames[userRank];
+            
+            let threshold = rankThresholds[userRank];
+            if(threshold && rankBar && rankText) {
+                let percent = (userClicks / threshold) * 100;
+                rankBar.style.width = percent + '%';
+                rankText.innerText = `${userClicks} / ${threshold} кликов до повышения`;
+            } else if (rankBar && rankText) {
+                rankBar.style.width = '100%';
+                rankText.innerText = `МАКСИМАЛЬНЫЙ РАНГ`;
+            }
         }
 
         function updateHeaderBadge(badge, color) {
@@ -750,7 +828,6 @@ HTML_CODE = """
             document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); });
             document.getElementById('view-' + tab).classList.add('active');
             
-            // Прокрутка к активной кнопке в навигации
             let btn = document.getElementById('tab-' + tab);
             if(btn) {
                 btn.classList.add('active');
@@ -775,7 +852,11 @@ HTML_CODE = """
                     muteUntil = data.mute_until; 
                     skinMult = data.skin_mult;
                     
+                    userClicks = data.clicks;
+                    userRank = data.rank;
+                    
                     updateUI();
+                    updateRankUI();
                     
                     let cpEl = document.getElementById('ui-click-power');
                     if (cpEl) cpEl.innerText = clickPower;
@@ -791,7 +872,7 @@ HTML_CODE = """
             if(autoIncome <= 0) return;
             balance += autoIncome;
             updateUI();
-            fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: autoIncome}) });
+            fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: autoIncome, manual: false}) });
         }, 1000);
 
         function clickCoin(e) {
@@ -803,7 +884,6 @@ HTML_CODE = """
             scoreEl.style.transform = "scale(1.1)";
             setTimeout(() => scoreEl.style.transform = "scale(1)", 100); playSound('click');
             
-            // ФИКС ПОЗИЦИИ ТЕКСТА (Учет зума)
             let zoomFactor = (parseInt(document.body.style.zoom) || 100) / 100;
             let clickX = (e.clientX || (e.touches && e.touches[0].clientX)) / zoomFactor;
             let clickY = (e.clientY || (e.touches && e.touches[0].clientY)) / zoomFactor;
@@ -813,8 +893,20 @@ HTML_CODE = """
             el.style.top = (clickY - 50) + 'px';
             document.body.appendChild(el); setTimeout(() => el.remove(), 800);
             
-            fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: clickPower}) })
-            .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
+            fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: clickPower, manual: true}) })
+            .then(res => res.json()).then(data => {
+                if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); }
+                else if (data.rank_up) {
+                    userRank = data.new_rank;
+                    userClicks = data.new_clicks;
+                    updateRankUI();
+                    showToast(`НОВЫЙ РАНГ: ${rankNames[userRank]}!`, 'success');
+                    playSound('success');
+                } else {
+                    userClicks = data.new_clicks;
+                    updateRankUI();
+                }
+            });
         }
 
         function playCasino(choice) {
@@ -942,7 +1034,6 @@ HTML_CODE = """
             });
         }
 
-        // ОБМЕННИК
         function loadExchange() {
             fetch('/api/dollar_rate').then(res => res.json()).then(data => {
                 dollarRate = data.rate;
@@ -970,7 +1061,6 @@ HTML_CODE = """
             });
         }
 
-        // ЛС (ПРИВАТНЫЕ СООБЩЕНИЯ)
         function messageUserFromProfile() {
             if (!currentProfileTarget) return;
             closeModal('profile-modal');
@@ -1017,9 +1107,9 @@ HTML_CODE = """
                     let time = new Date(m.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     let isSelf = m.sender === "{{ user.username }}";
                     let bubbleClass = isSelf ? 'self' : 'other';
+                    let msgClass = m.is_red ? 'red-text-msg' : '';
                     
-                    // Убрал startSwipe отсюда, чтобы реплаи не летели в глобал
-                    html += `<div class="msg-bubble ${bubbleClass}">
+                    html += `<div class="msg-bubble ${bubbleClass} ${msgClass}">
                                 <div class="msg-text">${m.text}<span class="msg-time">${time}</span></div>
                              </div>`;
                 });
@@ -1033,7 +1123,11 @@ HTML_CODE = """
             let inp = document.getElementById('pm-input');
             if(!inp.value.trim()) return;
             
-            fetch('/api/pm/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target: currentPmTarget, text: inp.value}) })
+            let isRed = false;
+            let toggle = document.getElementById('pm-red-text-toggle');
+            if (toggle) isRed = toggle.checked;
+
+            fetch('/api/pm/send', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({target: currentPmTarget, text: inp.value, is_red: isRed}) })
             .then(res => res.json()).then(data => {
                 if(data.success) { inp.value = ''; loadPmMessages(); }
                 else showToast(data.error, 'error');
@@ -1046,7 +1140,6 @@ HTML_CODE = """
             .then(() => showToast("Приватность ЛС обновлена!", 'success'));
         }
 
-        // ОСТАЛЬНОЕ
         function doModAction(action) {
             let target = document.getElementById('mod-target').value;
             let dur = parseInt(document.getElementById('mod-duration').value);
@@ -1076,8 +1169,9 @@ HTML_CODE = """
                     let modHtml = p.mod_rank > 0 ? `<span class="mod-badge" onclick="event.stopPropagation(); showModInfo('${p.username}', ${p.mod_rank})">🛡️</span>` : '';
                     let nameClass = p.color === 'rainbow' ? 'rainbow-text' : '';
                     let nameStyle = p.color !== 'rainbow' ? `style="color:${p.color}; font-weight:bold;"` : '';
+                    let rankHtml = p.rank > 0 ? `<span style="color: #8f00ff; font-weight: bold; font-size: 12px; margin-left:5px;">[${rankNames[p.rank]}]</span>` : '';
                     html += `<div class="top-player" onclick="openProfile('${p.username}')">
-                                <span>#${i+1} <span class="${nameClass}" ${nameStyle}>${p.username}</span> ${modHtml} ${badgeHtml}${hammerHtml}</span> 
+                                <span>#${i+1} <span class="${nameClass}" ${nameStyle}>${p.username}</span> ${rankHtml} ${modHtml} ${badgeHtml}${hammerHtml}</span> 
                                 <span>${formatNum(p.balance)} ₽</span>
                              </div>`;
                 });
@@ -1096,6 +1190,7 @@ HTML_CODE = """
                 let modHtml = data.mod_rank > 0 ? `<span class="mod-badge" onclick="showModInfo('${data.username}', ${data.mod_rank})">🛡️</span>` : '';
                 
                 document.getElementById('p-nick').innerHTML = `<span class="${nameClass}" ${nameStyle}>${data.username}</span> ${modHtml} ${badgeHtml}`;
+                document.getElementById('p-rank').innerText = rankNames[data.rank];
                 
                 let rankName = '';
                 if (data.mod_rank === 1) rankName = 'Младший Модератор';
@@ -1215,7 +1310,6 @@ HTML_CODE = """
             });
         }
 
-        // ОБРАБОТКА СВАЙПА С АНИМАЦИЕЙ
         let startX = 0;
         let currentSwipeElement = null;
         let currentSwipeUser = "";
@@ -1303,6 +1397,7 @@ HTML_CODE = """
         window.onload = () => { 
             initSettingsUI();
             updateUI();
+            updateRankUI();
             cancelReply();
             setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); 
             setInterval(loadPmMessages, 3000);
@@ -1311,6 +1406,10 @@ HTML_CODE = """
 </body>
 </html>
 """
+
+# Словари для рангов на бэкенде
+RANK_NAMES = {0: "Новичок", 1: "sub 3", 2: "sub 5", 3: "ltn", 4: "mtn", 5: "htn", 6: "CHAD", 7: "True Adam", 8: "True MoggClicker"}
+RANK_THRESHOLDS = {0: 50, 1: 200, 2: 500, 3: 550, 4: 750, 5: 1000, 6: 2000, 7: 10000}
 
 @app.route('/')
 def index():
@@ -1335,7 +1434,7 @@ def index():
 
     multi_price = int(100 * (1.2 ** (user.click_power - 1))) if user and not user.is_banned else 100
     auto_price = int(250 * (1.2 ** user.auto_income)) if user and not user.is_banned else 250
-    return render_template_string(HTML_CODE, user=user, multi_price=multi_price, auto_price=auto_price, remaining_seconds=remaining_seconds, inv_names=inv_names)
+    return render_template_string(HTML_CODE, user=user, multi_price=multi_price, auto_price=auto_price, remaining_seconds=remaining_seconds, inv_names=inv_names, rank_names=RANK_NAMES, rank_thresholds=RANK_THRESHOLDS)
 
 @app.route('/api/user')
 def api_user():
@@ -1343,14 +1442,14 @@ def api_user():
     user = User.query.get(session['user_id'])
     if not user: return jsonify({'error': 'No user'}), 401
     if user.is_banned: return jsonify({'error': 'Banned'}), 403
-    return jsonify({'success': True, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult, 'badge': user.badge, 'badge_color': user.badge_color})
+    return jsonify({'success': True, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mute_until': user.mute_until, 'skin_mult': user.skin_mult, 'badge': user.badge, 'badge_color': user.badge_color, 'clicks': user.clicks, 'rank': user.rank})
 
 @app.route('/api/profile/<username>')
 def api_profile(username):
     user = User.query.filter_by(username=username).first()
     if not user: return jsonify({'error': 'Not found'}), 404
     date_str = time.strftime('%d.%m.%Y', time.localtime(user.created_at if user.created_at else time.time()))
-    return jsonify({'username': user.username, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'badge': user.badge, 'badge_color': user.badge_color, 'color': user.color, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mod_rank': user.mod_rank, 'created_at': date_str})
+    return jsonify({'username': user.username, 'balance': user.balance, 'dollars': user.dollars, 'mog_coins': user.mog_coins, 'badge': user.badge, 'badge_color': user.badge_color, 'color': user.color, 'click_power': user.click_power, 'auto_income': user.auto_income, 'mod_rank': user.mod_rank, 'created_at': date_str, 'rank': user.rank})
 
 @app.route('/api/dollar_rate')
 def api_dollar_rate():
@@ -1446,7 +1545,7 @@ def api_pm_get():
         and_(PrivateMessage.sender == target, PrivateMessage.receiver == user.username)
     )).order_by(PrivateMessage.timestamp.asc()).limit(50).all()
     
-    return jsonify({'messages': [{'sender': m.sender, 'text': m.text, 'timestamp': m.timestamp} for m in msgs]})
+    return jsonify({'messages': [{'sender': m.sender, 'text': m.text, 'timestamp': m.timestamp, 'is_red': m.is_red} for m in msgs]})
 
 @app.route('/api/pm/send', methods=['POST'])
 def api_pm_send():
@@ -1457,7 +1556,8 @@ def api_pm_send():
     if not target: return jsonify({'error': 'Игрок не найден'}), 404
     if not target.privacy_pm: return jsonify({'error': 'У игрока отключены ЛС'}), 403
     
-    msg = PrivateMessage(sender=user.username, receiver=target.username, text=data['text'][:200], timestamp=time.time())
+    is_red = data.get('is_red', False) and user.can_write_red
+    msg = PrivateMessage(sender=user.username, receiver=target.username, text=data['text'][:200], timestamp=time.time(), is_red=is_red)
     db.session.add(msg); db.session.commit()
     return jsonify({'success': True})
 
@@ -1496,9 +1596,23 @@ def api_click():
         db.session.delete(user); db.session.commit(); session.pop('user_id', None)
         return jsonify({'error': 'banned_deleted'}), 403
     
-    amount = request.json.get('amount', 1) * user.skin_mult
-    user.balance += amount; db.session.commit()
-    return jsonify({'success': True})
+    data = request.json
+    amount = data.get('amount', 1) * user.skin_mult
+    is_manual = data.get('manual', False)
+    
+    user.balance += amount
+    
+    rank_up = False
+    if is_manual:
+        user.clicks += 1
+        threshold = RANK_THRESHOLDS.get(user.rank)
+        if threshold and user.clicks >= threshold:
+            user.clicks -= threshold
+            user.rank += 1
+            rank_up = True
+            
+    db.session.commit()
+    return jsonify({'success': True, 'new_clicks': user.clicks, 'rank_up': rank_up, 'new_rank': user.rank})
 
 @app.route('/api/casino/bet', methods=['POST'])
 def api_casino_bet():
@@ -1615,7 +1729,7 @@ def api_mod_action():
 @app.route('/api/top')
 def api_top():
     users = User.query.order_by(User.balance.desc()).limit(10).all()
-    return jsonify([{'username': u.username, 'balance': u.balance, 'dollars': u.dollars, 'color': u.color, 'badge': u.badge, 'badge_color': u.badge_color, 'is_banned': u.is_banned, 'mod_rank': u.mod_rank} for u in users])
+    return jsonify([{'username': u.username, 'balance': u.balance, 'dollars': u.dollars, 'color': u.color, 'badge': u.badge, 'badge_color': u.badge_color, 'is_banned': u.is_banned, 'mod_rank': u.mod_rank, 'rank': u.rank} for u in users])
 
 @app.route('/api/ban_info/<username>')
 def api_ban_info(username):
@@ -1634,6 +1748,7 @@ def api_reset():
     if 'user_id' not in session: return jsonify({'error': 'Auth'}), 401
     user = User.query.get(session['user_id'])
     user.balance = 0; user.click_power = 1; user.auto_income = 0; user.color = '#ffffff'; user.badge = ''; user.badge_color = '#ffffff'; user.skin = ''; user.skin_mult = 1.0
+    user.clicks = 0; user.rank = 0 # СБРОС РАНГА
     Inventory.query.filter_by(user_id=user.id).delete(); db.session.commit(); return jsonify({'success': True})
 
 @app.route('/api/transfer', methods=['POST'])
@@ -1747,6 +1862,11 @@ def api_admin_command():
         elif action == '/setmod' and len(parts) >= 3:
             rank = int(parts[2]); user.mod_rank = rank; db.session.commit()
             return jsonify({'success': True, 'msg': f'Игроку {target} выдан мод-ранг {rank}'})
+        elif action == '/setrank' and len(parts) >= 3:
+            new_rank = int(parts[2])
+            if new_rank < 0 or new_rank > 8: return jsonify({'error': 'Ранг от 0 до 8'})
+            user.rank = new_rank; user.clicks = 0; db.session.commit()
+            return jsonify({'success': True, 'msg': f'Игроку {target} выдан ранг {RANK_NAMES[new_rank]}'})
         elif action == '/ban' and len(parts) >= 3:
             duration = parts[2]; reason = " ".join(parts[3:]) if len(parts) > 3 else "Без причины"; sec = 60
             if 'm' in duration: sec = int(duration.replace('m','')) * 60
@@ -1764,7 +1884,7 @@ def api_admin_command():
         elif action == '/unmute':
             user.mute_until = 0; db.session.commit(); return jsonify({'success': True, 'msg': f'Игрок размучен'})
         elif action == '/reset': 
-            user.balance = 0; user.click_power = 1; user.auto_income = 0; user.skin = ''; user.skin_mult = 1.0
+            user.balance = 0; user.click_power = 1; user.auto_income = 0; user.skin = ''; user.skin_mult = 1.0; user.clicks = 0; user.rank = 0
             Inventory.query.filter_by(user_id=user.id).delete(); db.session.commit()
             return jsonify({'success': True, 'msg': f'Прогресс сброшен'})
         return jsonify({'error': 'Неизвестная команда'})

@@ -31,7 +31,8 @@ def print_menu():
     print("\\033[93m 11.\\033[0m Выдать красный чат  \\033[93m12.\\033[0m Забрать красный чат")
     print("\\033[93m 13.\\033[0m Выдать скин (Клик)  \\033[93m14.\\033[0m Выдать мод-ранг")
     print("\\033[93m 15.\\033[0m Размутить игрока    \\033[93m16.\\033[0m Разбанить игрока")
-    print("\\033[93m 17.\\033[0m Выдать БЕСКОНЕЧНО  \\033[93m0.\\033[0m Выход")
+    print("\\033[93m 17.\\033[0m Выдать БЕСКОНЕЧНО  \\033[93m18.\\033[0m Выдать РАНГ")
+    print("\\033[93m 0.\\033[0m Выход")
     print("\\033[96m════════════════════════════════════════════\\033[0m")
 
 def main():
@@ -40,9 +41,9 @@ def main():
     
     while True:
         try:
-            choice = input("\\033[95mВыбери действие (0-17): \\033[0m").strip()
+            choice = input("\\033[95mВыбери действие (0-18): \\033[0m").strip()
             if choice == '0': break
-            if choice not in [str(i) for i in range(18)]:
+            if choice not in [str(i) for i in range(19)]:
                 print("\\033[91m❌ Неверный выбор.\\033[0m"); continue
 
             if choice == '4':
@@ -106,6 +107,9 @@ def main():
                 send_command(f"/unban {target}")
             elif choice == '17':
                 send_command(f"/infinite {target}")
+            elif choice == '18':
+                rank = input("\\033[96mРанг игрока (0-8): \\033[0m").strip()
+                send_command(f"/setrank {target} {rank}")
 
         except KeyboardInterrupt: break
         except Exception as e: print(f"\\033[91m❌ Ошибка: {e}\\033[0m")
