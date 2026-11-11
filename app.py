@@ -125,7 +125,7 @@ HTML_CODE = """
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Comic+Neue:wght@700&family=Montserrat:wght@400;700&family=Play:wght@400;700&family=Russo+One&display=swap" rel="stylesheet">
     <style>
-        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease; }
+        * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease, transform 0.2s ease, box-shadow 0.2s ease; }
         
         :root { --bg: #121212; --panel: #1e1e1e; --text: #ffffff; --neon: #00ffcc; --gold: #ffd700; --border: #333; --msg-bg: #2b2b2b; --msg-my-bg: #7a5af8; }
         body.theme-light { --bg: #f0f0f0; --panel: #ffffff; --text: #121212; --neon: #0077ff; --border: #ccc; --msg-bg: #e1e1e1; --msg-my-bg: #0077ff; }
@@ -171,9 +171,33 @@ HTML_CODE = """
         .btn-gold:hover { box-shadow: 0 0 15px var(--gold); }
         .btn-disabled { background: #444 !important; color: #888 !important; cursor: not-allowed !important; box-shadow: none !important; transform: none !important; }
 
-        .nav-btn { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px; }
-        .nav-btn:hover { border-color: var(--neon); color: var(--neon); }
-        .nav-btn.active { border-color: var(--neon); color: var(--neon); box-shadow: 0 0 10px var(--neon); }
+        /* НОВАЯ НАВИГАЦИЯ */
+        .nav-container {
+            position: sticky; top: 10px; z-index: 100;
+            background: var(--bg);
+            width: 100%; max-width: 400px;
+            overflow-x: auto; white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+            display: flex; gap: 8px; padding: 5px;
+            margin-bottom: 15px;
+            border-radius: 15px;
+            border: 1px solid var(--border);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            scrollbar-width: none; /* Firefox */
+        }
+        .nav-container::-webkit-scrollbar { display: none; }
+        
+        .nav-btn { 
+            flex-shrink: 0; background: transparent; border: 1px solid transparent; 
+            color: var(--text); padding: 8px 16px; border-radius: 20px; 
+            cursor: pointer; font-weight: bold; font-size: 14px; 
+        }
+        .nav-btn:hover { background: rgba(255,255,255,0.05); }
+        .nav-btn.active { 
+            background: var(--neon); color: #000; 
+            box-shadow: 0 0 10px var(--neon); 
+            border-color: var(--neon);
+        }
 
         #score { font-size: 45px; color: var(--gold); font-weight: bold; text-shadow: 0 0 15px rgba(255,215,0,0.4); margin: 15px 0; }
         #coin { width: 200px; height: 200px; background: radial-gradient(circle, var(--gold), #b8860b); border-radius: 50%; margin: 20px auto; font-size: 80px; line-height: 200px; cursor: pointer; box-shadow: 0 0 40px var(--gold); display: block; }
@@ -228,11 +252,23 @@ HTML_CODE = """
         .setting-item:hover { border-color: var(--neon); transform: translateY(-2px); }
         input[type="range"] { width: 100%; accent-color: var(--neon); height: 20px; margin-top: 10px; }
         
-        .modal { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; backdrop-filter: blur(5px); opacity: 0; visibility: hidden; }
+        /* ПЛАВНЫЕ МОДАЛКИ */
+        .modal { 
+            display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; 
+            backdrop-filter: blur(5px); opacity: 0; visibility: hidden; 
+            transition: opacity 0.3s ease, visibility 0.3s ease; 
+        }
         .modal.active { opacity: 1; visibility: visible; }
-        .modal-content { background: #1a1a1a; border: 2px solid var(--neon); padding: 25px; border-radius: 15px; max-width: 90%; width: 350px; text-align: left; box-shadow: 0 0 30px rgba(0,255,204,0.2); position: relative; transform: scale(0.8); max-height: 80vh; overflow-y: auto; }
-        .modal.active .modal-content { transform: scale(1); animation: modalPop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes modalPop { 0% { transform: scale(0.8); } 100% { transform: scale(1); } }
+        .modal-content { 
+            background: #1a1a1a; border: 2px solid var(--neon); padding: 25px; border-radius: 15px; 
+            max-width: 90%; width: 350px; text-align: left; box-shadow: 0 0 30px rgba(0,255,204,0.2); 
+            position: relative; transform: scale(0.9); opacity: 0;
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
+            max-height: 80vh; overflow-y: auto; 
+        }
+        .modal.active .modal-content { transform: scale(1); opacity: 1; }
+        
         .modal-title { color: var(--neon); font-size: 22px; font-weight: bold; text-align: center; margin-bottom: 20px; text-shadow: 0 0 10px var(--neon); }
         .close-btn { position: absolute; top: 10px; right: 15px; font-size: 24px; cursor: pointer; color: #ff4444; }
         .close-btn:hover { transform: scale(1.2) rotate(90deg); }
@@ -351,7 +387,8 @@ HTML_CODE = """
             | <a href="/logout" style="color: #ff4444; text-decoration: none; font-weight: bold;">Выйти</a>
         </div>
 
-        <div class="nav" style="display: flex; justify-content: center; gap: 5px; margin-bottom: 15px; flex-wrap: wrap; width: 100%; max-width: 400px;">
+        <!-- НОВАЯ НАВИГАЦИЯ -->
+        <div class="nav-container">
             <button onclick="switchTab('game')" id="tab-game" class="nav-btn active">Игра</button>
             <button onclick="switchTab('casino')" id="tab-casino" class="nav-btn">Казино</button>
             <button onclick="switchTab('shop')" id="tab-shop" class="nav-btn">Магазин</button>
@@ -362,7 +399,7 @@ HTML_CODE = """
             <button onclick="switchTab('top')" id="tab-top" class="nav-btn">Топ</button>
             <button onclick="switchTab('settings')" id="tab-settings" class="nav-btn">Настройки</button>
             {% if user.mod_rank > 0 %}
-            <button onclick="switchTab('mod')" id="tab-mod" class="nav-btn" style="border-color: var(--neon); color: var(--neon);">Модерация</button>
+            <button onclick="switchTab('mod')" id="tab-mod" class="nav-btn" style="color: var(--neon);">Модерация</button>
             {% endif %}
         </div>
 
@@ -511,9 +548,9 @@ HTML_CODE = """
 
         <div id="view-settings" class="view">
             <h3>Настройки</h3>
-            <div class="setting-item" onclick="openModal('lang-modal')"><span>Язык</span><span id="display-lang">Русский</span></div>
-            <div class="setting-item" onclick="openModal('theme-modal')"><span>Тема</span><span id="display-theme">Тёмная</span></div>
-            <div class="setting-item" onclick="openModal('font-modal')"><span>Шрифт</span><span id="display-font">{{ user.font_family }}</span></div>
+            <div class="setting-item" onclick="openModal('lang-modal')"><span>Язык</span><span id="display-lang">Загрузка...</span></div>
+            <div class="setting-item" onclick="openModal('theme-modal')"><span>Тема</span><span id="display-theme">Загрузка...</span></div>
+            <div class="setting-item" onclick="openModal('font-modal')"><span>Шрифт</span><span id="display-font">Загрузка...</span></div>
             
             <div class="setting-item" style="justify-content: space-between;">
                 <span>Личные сообщения (Приватность)</span>
@@ -538,7 +575,7 @@ HTML_CODE = """
             <div id="chat-messages"></div>
             <div id="chat-mute-status" style="display:none;">Вы заглушены</div>
             <div id="chat-input-area">
-                <div id="chat-reply-bar"><span id="reply-text-preview" style="color:var(--gold); font-weight:bold;"></span><br><span id="reply-message-preview" style="color:#aaa; font-size:11px;"></span><span class="close-reply" onclick="cancelReply()">×</span></div>
+                <div id="chat-reply-bar" style="display:none;"><span id="reply-text-preview" style="color:var(--gold); font-weight:bold;"></span><br><span id="reply-message-preview" style="color:#aaa; font-size:11px;"></span><span class="close-reply" onclick="cancelReply()" style="cursor:pointer; margin-left:10px; color:#ff4444; font-weight:bold;">×</span></div>
                 <div class="chat-input-row">
                     <input type="text" id="chat-input" placeholder="Сообщение в чат..." onkeypress="handleChatEnter(event)">
                     {% if user.can_write_red %}
@@ -596,6 +633,23 @@ HTML_CODE = """
         let currentProfileTarget = null;
         let currentPmTarget = null;
         let dollarRate = 90.0;
+
+        // ПЕРЕВОДЫ ДЛЯ НАСТРОЕК
+        const themeNames = { dark: 'Тёмная', light: 'Светлая', neon: 'Неон', cyber: 'Киберпанк', ocean: 'Океан', retro: 'Ретро' };
+        const langNames = { ru: 'Русский', en: 'English' };
+        
+        let currentUserTheme = "{{ user.theme if user else 'dark' }}";
+        let currentUserLang = "{{ user.lang if user else 'ru' }}";
+        let currentUserFont = "{{ user.font_family if user else 'Montserrat' }}";
+
+        function initSettingsUI() {
+            let themeEl = document.getElementById('display-theme');
+            if(themeEl) themeEl.innerText = themeNames[currentUserTheme] || currentUserTheme;
+            let langEl = document.getElementById('display-lang');
+            if(langEl) langEl.innerText = langNames[currentUserLang] || currentUserLang;
+            let fontEl = document.getElementById('display-font');
+            if(fontEl) fontEl.innerText = currentUserFont;
+        }
 
         // ФОРМАТИРОВАНИЕ ЧИСЕЛ
         function formatNum(num) {
@@ -695,8 +749,14 @@ HTML_CODE = """
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); });
             document.getElementById('view-' + tab).classList.add('active');
+            
+            // Прокрутка к активной кнопке в навигации
             let btn = document.getElementById('tab-' + tab);
-            btn.classList.add('active');
+            if(btn) {
+                btn.classList.add('active');
+                btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+            
             if(tab === 'top') loadTop();
             if(tab === 'transfer') loadTransfers('day', document.querySelector('#view-transfer .nav-btn'));
             if(tab === 'inventory') loadInventory();
@@ -742,9 +802,17 @@ HTML_CODE = """
             const scoreEl = document.getElementById('score');
             scoreEl.style.transform = "scale(1.1)";
             setTimeout(() => scoreEl.style.transform = "scale(1)", 100); playSound('click');
+            
+            // ФИКС ПОЗИЦИИ ТЕКСТА (Учет зума)
+            let zoomFactor = (parseInt(document.body.style.zoom) || 100) / 100;
+            let clickX = (e.clientX || (e.touches && e.touches[0].clientX)) / zoomFactor;
+            let clickY = (e.clientY || (e.touches && e.touches[0].clientY)) / zoomFactor;
+            
             const el = document.createElement('div'); el.className = 'floating'; el.innerText = '+' + formatNum(addAmount) + ' ₽';
-            el.style.left = (e.clientX - 20) + 'px'; el.style.top = (e.clientY - 40) + 'px';
+            el.style.left = (clickX - 30) + 'px'; 
+            el.style.top = (clickY - 50) + 'px';
             document.body.appendChild(el); setTimeout(() => el.remove(), 800);
+            
             fetch('/api/click', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({amount: clickPower}) })
             .then(res => { if(res.status === 403) { showToast("АБЬЮЗ!", 'error'); setTimeout(() => window.location.href = '/logout', 2000); } });
         }
@@ -950,7 +1018,8 @@ HTML_CODE = """
                     let isSelf = m.sender === "{{ user.username }}";
                     let bubbleClass = isSelf ? 'self' : 'other';
                     
-                    html += `<div class="msg-bubble ${bubbleClass}" onmousedown="startSwipe(event, '${m.sender}', '${m.text.replace(/'/g, "\\'")}')" ontouchstart="startSwipe(event, '${m.sender}', '${m.text.replace(/'/g, "\\'")}')">
+                    // Убрал startSwipe отсюда, чтобы реплаи не летели в глобал
+                    html += `<div class="msg-bubble ${bubbleClass}">
                                 <div class="msg-text">${m.text}<span class="msg-time">${time}</span></div>
                              </div>`;
                 });
@@ -1061,9 +1130,20 @@ HTML_CODE = """
         function closeOtherBan() { closeModal('other-ban-modal'); if(topBanInterval) clearInterval(topBanInterval); }
 
         function changeSetting(key, value) {
-            if(key === 'theme') { document.body.className = 'theme-' + value; document.getElementById('display-theme').innerText = value; }
-            if(key === 'lang') { document.getElementById('display-lang').innerText = value === 'ru' ? 'Русский' : 'English'; }
-            if(key === 'font_family') { document.body.style.fontFamily = "'" + value + "', sans-serif"; document.getElementById('display-font').innerText = value; }
+            if(key === 'theme') { 
+                document.body.className = 'theme-' + value; 
+                document.getElementById('display-theme').innerText = themeNames[value] || value; 
+                currentUserTheme = value;
+            }
+            if(key === 'lang') { 
+                document.getElementById('display-lang').innerText = langNames[value] || value; 
+                currentUserLang = value;
+            }
+            if(key === 'font_family') { 
+                document.body.style.fontFamily = "'" + value + "', sans-serif"; 
+                document.getElementById('display-font').innerText = value; 
+                currentUserFont = value;
+            }
             fetch('/api/settings', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key: key, value: value}) }).then(() => { showToast("Сохранено!", 'success'); closeModal('lang-modal'); closeModal('theme-modal'); closeModal('font-modal'); });
         }
 
@@ -1221,7 +1301,9 @@ HTML_CODE = """
         setInterval(checkMuteStatus, 1000);
         
         window.onload = () => { 
+            initSettingsUI();
             updateUI();
+            cancelReply();
             setInterval(loadChat, 3000); loadChat(); checkMuteStatus(); 
             setInterval(loadPmMessages, 3000);
         };
